@@ -23,8 +23,13 @@ from funciones_forecast import (
     Open_Conn_Postgres,
     Close_Connection,
     get_excecution_by_status,
-    update_execution,
+    Open_Postgres_retry,
+    actualizar_site_ids,
+    get_precios,
     get_excecution_excecute_by_status,
+    update_execution,
+    create_execution_execute_result,
+    generar_mini_grafico,
     generar_grafico_base64
 )
 
@@ -150,13 +155,6 @@ if __name__ == "__main__":
             df_forecast_ext = actualizar_site_ids(df_forecast_ext, conn)
             print(f"-> Se actualizaron los site_ids: {id_proveedor}, Label: {name}")
             
-            # ✅ Actualizar Estado intermedio de Procesamiento....
-            update_execution(execution_id, supply_forecast_execution_status_id=45)
-
-            # Publicar en tabla de resultados
-            publish_excecution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id)
-            print(f"-> Detalle Forecast Publicado CONNEXA: {id_proveedor}, Label: {name}")
-
             # Obtener precios y costos
             precio = get_precios(id_proveedor)
             precio['C_ARTICULO'] = precio['C_ARTICULO'].astype(int)
@@ -169,40 +167,55 @@ if __name__ == "__main__":
                 right_on=['C_ARTICULO', 'C_SUCU_EMPR'],
                 how='left'
             )
+            
+            # Verificar columnas necesarias después del merge
+            columnas_requeridas = ['I_PRECIO_VTA', 'I_COSTO_ESTADISTICO']
+            for col in columnas_requeridas:
+                if col not in df_merged.columns:
+                    print(f"❌ ERROR: Falta la columna requerida '{col}' en df_merged para el proveedor {id_proveedor}")
+                    df_merged.to_csv(f"{folder}/{algoritmo}_ERROR_MERGE.csv", index=False)
+                    raise ValueError(f"Column '{col}' missing in df_merged. No se puede continuar.")
 
-            # Cálculo de métricas
+            # Cálculo de métricas x Línea en miles
             df_merged['Forecast_VENTA'] = (df_merged['Forecast'] * df_merged['I_PRECIO_VTA'] / 1000).round(2)
             df_merged['Forecast_COSTO'] = (df_merged['Forecast'] * df_merged['I_COSTO_ESTADISTICO'] / 1000).round(2)
-            df_merged['MARGEN'] = (df_merged['Forecast_VENTA'] - df_merged['Forecast_COSTO']).round(2)
+            df_merged['MARGEN'] = (df_merged['Forecast_VENTA'] - df_merged['Forecast_COSTO'])
 
             # Guardar CSV actualizado
             file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
             df_merged.to_csv(file_path, index=False)
             print(f"Archivo guardado: {file_path}")
 
-            # Totales
-            total_venta = df_merged['Forecast_VENTA'].sum()
-            total_costo = df_merged['Forecast_COSTO'].sum()
-            total_margen = df_merged['MARGEN'].sum()
+            # Totales en millones, redondeados a 2 decimales
+            total_venta = round(df_merged['Forecast_VENTA'].sum() / 1000, 2)
+            total_costo = round(df_merged['Forecast_COSTO'].sum() / 1000, 2)
+            total_margen = round((total_venta - total_costo),2)
+
 
             # Mini gráfico
             mini_grafico = generar_mini_grafico(folder, name)
 
-            # Marcar como procesado en el dataframe local.
-            fes.at[index, "supply_forecast_execution_status_id"] = 50
-
             # Actualizar en base de datos
             update_execution(
                 execution_id,
-                supply_forecast_execution_status_id=50,
+                supply_forecast_execution_status_id=45,
                 monthly_sales_in_millions=total_venta,
                 monthly_purchases_in_millions=total_costo,
                 monthly_net_margin_in_millions=total_margen,
                 graphic=mini_grafico
             )
+            
+            # Publicar en tabla de resultados
+            publish_excecution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id)
+            print(f"-> Detalle Forecast Publicado CONNEXA: {id_proveedor}, Label: {name}")
+                        
+            # ✅ Actualizar Estado intermedio de Procesamiento....
+            update_execution(execution_id, supply_forecast_execution_status_id=50)
             print(f"✅ Estado actualizado a 50 para {execution_id}")
 
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"❌ Error procesando {name}: {e}")
+
+# --------------------------------

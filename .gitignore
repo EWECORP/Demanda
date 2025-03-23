@@ -132,6 +132,7 @@ venv.bak/
 
 # Datos Locales
 data/
+docs/
 
 # Spyder project settings
 .spyderproject

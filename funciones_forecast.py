@@ -1572,7 +1572,7 @@ def delete_execution_execute(exec_id):
 def create_execution_execute_result(confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, upper_bound,
                                     product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code,
                                     forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, deliveries_pending):
-    conn = connect_with_retry()
+    conn = Open_Postgres_retry()
     if conn is None:
         print("❌ No se pudo conectar después de varios intentos")
         return None
