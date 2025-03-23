@@ -15,6 +15,8 @@ o estar en el PYTHONPATH para poder importarse correctamente.
 # Librerías necesarias
 import base64
 from io import BytesIO
+import os
+import shutil
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -339,7 +341,7 @@ def get_precios(id_proveedor):
     precios['C_SUCU_EMPR']= precios['C_SUCU_EMPR'].astype(int)
     return precios
 
-def actualizar_site_ids(df_forecast_ext, conn):
+def actualizar_site_ids(df_forecast_ext, conn, name):
     """Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site"""
     query = """
     SELECT code, name, id FROM public.fnd_site
@@ -370,6 +372,17 @@ def actualizar_site_ids(df_forecast_ext, conn):
         print("✅ Todos los registros tienen site_id válido")
 
     return df_forecast_ext
+
+def mover_archivos_procesados(algoritmo, folder):    # Movel a procesado los archivos.
+    destino = os.path.join(folder, "procesado")
+    os.makedirs(destino, exist_ok=True)  # Crea la carpeta si no existe
+
+    for archivo in os.listdir(folder):
+        if archivo.startswith(algoritmo):
+            origen = os.path.join(folder, archivo)
+            destino_final = os.path.join(destino, archivo)
+            shutil.move(origen, destino_final)
+            print(f"📁 Archivo movido: {archivo} → {destino_final}")
 
 ###----------------------------------------------------------------
 #     ALGORITMOS
@@ -1355,8 +1368,6 @@ def get_execution_parameter(supply_forecast_model_id, execution_id):
     finally:
         Close_Connection(conn)
                 
-
-
 
 # -----------------------------------------------------------
 # 4. Operaciones CRUD para spl_supply_forecast_execution_parameter

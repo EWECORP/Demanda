@@ -24,6 +24,7 @@ from funciones_forecast import (
     Close_Connection,
     get_excecution_by_status,
     Open_Postgres_retry,
+    mover_archivos_procesados,
     actualizar_site_ids,
     get_precios,
     get_excecution_excecute_by_status,
@@ -72,7 +73,7 @@ def publish_excecution_results(df_forecast_ext, forecast_execution_excecute_id, 
         )
     print ('--------------------------------')
 
-def actualizar_site_ids(df_forecast_ext, conn):
+def actualizar_site_ids(df_forecast_ext, conn, name):
     """Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site"""
     query = """
     SELECT code, name, id FROM public.fnd_site
@@ -125,12 +126,29 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
     
     return df_forecast
 
-# Punto de entrada
+import os
+import shutil
+
+def mover_archivos_procesados(algoritmo, folder):
+    destino = os.path.join(folder, "procesado")
+    os.makedirs(destino, exist_ok=True)  # Crea la carpeta si no existe
+
+    for archivo in os.listdir(folder):
+        if archivo.startswith(algoritmo):
+            origen = os.path.join(folder, archivo)
+            destino_final = os.path.join(destino, archivo)
+            shutil.move(origen, destino_final)
+            print(f"📁 Archivo movido: {archivo} → {destino_final}")
+
+# --------------------------------
+# Punto de Entrada del Módulo
+# --------------------------------
+
 if __name__ == "__main__":
 
     # Leer Dataframe de FORECAST EXECUTION LISTOS PARA IMPORTAR A CONNEXA (DE 40 A 50)
     fes = get_excecution_excecute_by_status(40)
-
+    
     for index, row in fes[fes["supply_forecast_execution_status_id"] == 40].iterrows():
         algoritmo = row["name"]
         name = algoritmo.split('_ALGO')[0]
@@ -149,48 +167,52 @@ if __name__ == "__main__":
             df_forecast_ext['Sucursal'] = df_forecast_ext['Sucursal'].astype(int)
             df_forecast_ext.fillna(0, inplace=True)
             print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {name}")
+            print("❗Filas con site_id inválido:", df_forecast_ext['site_id'].isna().sum())
+            print("❗Filas con product_id inválido:", df_forecast_ext['product_id'].isna().sum())
 
             # Agregar site_id desde fnd_site
             conn = Open_Conn_Postgres()
-            df_forecast_ext = actualizar_site_ids(df_forecast_ext, conn)
+            df_forecast_ext = actualizar_site_ids(df_forecast_ext, conn, name)
             print(f"-> Se actualizaron los site_ids: {id_proveedor}, Label: {name}")
             
-            # Obtener precios y costos
-            precio = get_precios(id_proveedor)
-            precio['C_ARTICULO'] = precio['C_ARTICULO'].astype(int)
-            precio['C_SUCU_EMPR'] = precio['C_SUCU_EMPR'].astype(int)
+            # Hacer merge solo si no existen las columnas de precios y costos
+            if 'I_PRECIO_VTA' not in df_forecast_ext.columns or 'I_COSTO_ESTADISTICO' not in df_forecast_ext.columns:
+                print(f"❌ ERROR: Falta la columna requerida '{col}' procedemos a actualizar {id_proveedor}")
+                precio = get_precios(id_proveedor)
+                precio['C_ARTICULO'] = precio['C_ARTICULO'].astype(int)
+                precio['C_SUCU_EMPR'] = precio['C_SUCU_EMPR'].astype(int)
 
-            # Merge con precios
-            df_merged = df_forecast_ext.merge(
-                precio,
-                left_on=['Codigo_Articulo', 'Sucursal'],
-                right_on=['C_ARTICULO', 'C_SUCU_EMPR'],
-                how='left'
-            )
+                df_forecast_ext = df_forecast_ext.merge(
+                    precio,
+                    left_on=['Codigo_Articulo', 'Sucursal'],
+                    right_on=['C_ARTICULO', 'C_SUCU_EMPR'],
+                    how='left'
+                )
+            else:
+                print(f"⚠️ El DataFrame ya contiene precios y costos. Merge evitado para {id_proveedor}")
             
             # Verificar columnas necesarias después del merge
             columnas_requeridas = ['I_PRECIO_VTA', 'I_COSTO_ESTADISTICO']
             for col in columnas_requeridas:
-                if col not in df_merged.columns:
-                    print(f"❌ ERROR: Falta la columna requerida '{col}' en df_merged para el proveedor {id_proveedor}")
-                    df_merged.to_csv(f"{folder}/{algoritmo}_ERROR_MERGE.csv", index=False)
-                    raise ValueError(f"Column '{col}' missing in df_merged. No se puede continuar.")
+                if col not in df_forecast_ext.columns:
+                    print(f"❌ ERROR: Falta la columna requerida '{col}' en df_forecast_ext para el proveedor {id_proveedor}")
+                    df_forecast_ext.to_csv(f"{folder}/{algoritmo}_ERROR_MERGE.csv", index=False)
+                    raise ValueError(f"Column '{col}' missing in df_forecast_ext. No se puede continuar.")
 
             # Cálculo de métricas x Línea en miles
-            df_merged['Forecast_VENTA'] = (df_merged['Forecast'] * df_merged['I_PRECIO_VTA'] / 1000).round(2)
-            df_merged['Forecast_COSTO'] = (df_merged['Forecast'] * df_merged['I_COSTO_ESTADISTICO'] / 1000).round(2)
-            df_merged['MARGEN'] = (df_merged['Forecast_VENTA'] - df_merged['Forecast_COSTO'])
+            df_forecast_ext['Forecast_VENTA'] = (df_forecast_ext['Forecast'] * df_forecast_ext['I_PRECIO_VTA'] / 1000).round(2)
+            df_forecast_ext['Forecast_COSTO'] = (df_forecast_ext['Forecast'] * df_forecast_ext['I_COSTO_ESTADISTICO'] / 1000).round(2)
+            df_forecast_ext['MARGEN'] = (df_forecast_ext['Forecast_VENTA'] - df_forecast_ext['Forecast_COSTO'])
 
             # Guardar CSV actualizado
             file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
-            df_merged.to_csv(file_path, index=False)
+            df_forecast_ext.to_csv(file_path, index=False)
             print(f"Archivo guardado: {file_path}")
-
-            # Totales en millones, redondeados a 2 decimales
-            total_venta = round(df_merged['Forecast_VENTA'].sum() / 1000, 2)
-            total_costo = round(df_merged['Forecast_COSTO'].sum() / 1000, 2)
-            total_margen = round((total_venta - total_costo),2)
-
+            
+            # Asegurar que los valores son del tipo float (nativo de Python)
+            total_venta = float(round(df_forecast_ext['Forecast_VENTA'].sum() / 1000, 2))
+            total_costo = float(round(df_forecast_ext['Forecast_COSTO'].sum() / 1000, 2))
+            total_margen = float(round(df_forecast_ext['MARGEN'].sum() / 1000, 2))
 
             # Mini gráfico
             mini_grafico = generar_mini_grafico(folder, name)
@@ -217,5 +239,5 @@ if __name__ == "__main__":
             import traceback
             traceback.print_exc()
             print(f"❌ Error procesando {name}: {e}")
-
+            
 # --------------------------------
