@@ -1065,18 +1065,23 @@ def generar_mini_grafico( folder, name):
     df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
 
-    fecha_maxima = df_ventas["Fecha"].max()
-    df_filtrado = df_ventas[df_ventas["Fecha"] >= (fecha_maxima - pd.Timedelta(days=150))].copy()
+    # RUTINA DE MINIGRAFICO
+    fecha_maxima = df_ventas["Fecha"].max()   # Obtener la fecha máxima
+    primer_dia_mes_siguiente = (fecha_maxima + pd.offsets.MonthBegin(1)).normalize()   # Truncar al primer día del mes siguiente (evita tener un mes parcial)
+    primer_dia_6_meses_atras = primer_dia_mes_siguiente - pd.DateOffset(months=6)   # Calcular el primer día 6 meses atrás
 
-    # Ventas Semanales
+    # Filtrar el dataframe entre ese rango
+    df_filtrado = df_ventas[(df_ventas["Fecha"] >= primer_dia_6_meses_atras) &
+                            (df_ventas["Fecha"] < primer_dia_mes_siguiente)].copy()
+    # Agrupar por mes
     df_filtrado["Mes"] = df_filtrado["Fecha"].dt.to_period("M").astype(str)
     df_mes = df_filtrado.groupby("Mes")["Unidades"].sum().reset_index()
 
     # Crear el gráfico compacto
     fig, ax = plt.subplots(figsize=(3, 1))  # Tamaño pequeño para una visualización compacta
-    # ax.bar(df_mes["Mes"], df_mes["Unidades"], color=["red", "blue", "green", "orange", "purple", "brown"], alpha=0.7)
-    # Usar el índice como secuencia de registros
-    ax.bar(range(1, len(df_mes) + 1), df_mes["Unidades"], color=["red", "blue", "green", "orange", "purple", "brown"], alpha=0.7)
+
+    # Graficar las barras
+    ax.bar(range(1, len(df_mes) + 1), df_mes["Unidades"], color=["blue"], alpha=0.7)
 
     # Eliminar ejes y etiquetas para que sea más compacto
     ax.set_xticks([])
@@ -1085,9 +1090,6 @@ def generar_mini_grafico( folder, name):
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
     ax.spines['bottom'].set_visible(False)
-    
-    # Mostrar el gráfico
-    # plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Ajustar para no solapar con el título
 
     # Guardar gráfico en base64
     buffer = BytesIO()
