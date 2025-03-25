@@ -92,10 +92,10 @@ def Open_Conn_Postgres():
             return conn 
         except Exception as e:
             print(f"Error en la conexión, intento {i+1}/{5}: {e}")
-            time.sleep(10)
+            time.sleep(5)
     return None  # Retorna None si todos los intentos fallan
 
-def Open_Postgres_retry(max_retries=5, wait_seconds=10):
+def Open_Postgres_retry(max_retries=5, wait_seconds=5):
     secrets = dotenv_values(".env")   # Cargar credenciales desde .env    
     conn_str = f"dbname={secrets['BASE4']} user={secrets['USUARIO4']} password={secrets['CONTRASENA4']} host={secrets['SERVIDOR4']} port={secrets['PUERTO4']}"
     for i in range(max_retries):

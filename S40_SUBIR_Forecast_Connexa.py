@@ -259,6 +259,10 @@ if __name__ == "__main__":
             # ✅ Actualizar Estado intermedio de Procesamiento....
             update_execution(execution_id, supply_forecast_execution_status_id=50)
             print(f"✅ Estado actualizado a 50 para {execution_id}")
+            
+            # ✅ Morver Archivo a carpeta de Procesado ....
+            mover_archivos_procesados(algoritmo, folder)
+            print(f"✅ Archivo movido a Procesado: {algoritmo}")
 
         except Exception as e:
             import traceback
