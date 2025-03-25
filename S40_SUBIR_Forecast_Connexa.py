@@ -3,7 +3,7 @@ Nombre del módulo: S40_SUBIR_Forecast_Connexa.py
 
 Descripción:
 Partiendo de los datos extendidos con estado 40. El forecast está Listo, Completo y Graficado para subirlo a CONNEXA.
-Se actualiza la grilla de Forecast Excecutión con los datos actualizados que resumen datos relevantes del pedido.
+Se actualiza la grilla de Forecast executión con los datos actualizados que resumen datos relevantes del pedido.
 Forecast Valorizado Precio de Venta, a Precios de Costo y Margen potencial. Minigráfico de Tendencia de ventas.
 Se utiliza estado 45 Intermedio porque el proceso es largo. Al finalizar se actualiza el estado a 40 en la base de datos.
 
@@ -11,7 +11,7 @@ Se utiliza estado 45 Intermedio porque el proceso es largo. Al finalizar se actu
 
 1) Leer ejecuciones con Status 40.
 2) Actualizar los Datos y el Minigráfico de la cabecera de ejecución.
-3) Cargar datos en la tabla execuciton_excecute_result.
+3) Cargar datos en la tabla execuciton_execute_result.
 4) Actulizar Estado en connexa a 50 DISPONIBLE
 
 Autor: EWE - Zeetrex
@@ -22,12 +22,12 @@ Fecha de creación: [2025-03-22]
 from funciones_forecast import (
     Open_Conn_Postgres,
     Close_Connection,
-    get_excecution_by_status,
+    get_execution_by_status,
     Open_Postgres_retry,
     mover_archivos_procesados,
     actualizar_site_ids,
     get_precios,
-    get_excecution_excecute_by_status,
+    get_execution_execute_by_status,
     update_execution,
     create_execution_execute_result,
     generar_mini_grafico,
@@ -36,42 +36,67 @@ from funciones_forecast import (
 
 import pandas as pd # uso localmente la lectura de archivos.
 import ace_tools_open as tools
-
 from dotenv import dotenv_values
 secrets = dotenv_values(".env")
 folder = secrets["FOLDER_DATOS"]
 
 # También podés importar funciones adicionales si tu módulo las necesita
 
-def publish_excecution_results(df_forecast_ext, forecast_execution_excecute_id, supplier_id):
-    print ('Comenzando a grabar el dataframe')
-    for _, row in df_forecast_ext.iterrows():
-        create_execution_execute_result(
-            confidence_level=0.92,  # Valor por defecto ya que no está en df_meged
-            error_margin=0.07,  # Valor por defecto
-            expected_demand=row['Forecast'],
-            average_daily_demand=row['Average'],
-            lower_bound=row['Q_DIAS_STOCK'],  # Valor por defecto
-            upper_bound=row['Q_VENTA_DIARIA_NORMAL'],  # Valor por defecto
-            product_id=row['product_id'],
-            site_id=row['site_id'],
-            supply_forecast_execution_execute_id=forecast_execution_excecute_id,
-            algorithm=row['algoritmo'],
-            average=row['Average'],
-            ext_product_code=row['Codigo_Articulo'],
-            ext_site_code=row['Sucursal'],
-            ext_supplier_code=row['id_proveedor'],
-            forcast=row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
-            graphic=row['GRAFICO'],
-            quantity_stock=row['Q_TRANSF_PEND'],  # Valor por defecto
-            sales_last=row['ventas_last'],
-            sales_previous=row['ventas_previous'],
-            sales_same_year=row['ventas_same_year'],
-            supplier_id=supplier_id,
-            windows=row['ventana'],
-            deliveries_pending=1  # Valor por defecto
-        )
-    print ('--------------------------------')
+import time
+from datetime import datetime
+import os
+
+def publish_execution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id):
+    print(f"🚀 Comenzando publicación a CONNEXA | Total registros: {len(df_forecast_ext)}")
+    
+    total = len(df_forecast_ext)
+    log_path = os.path.join(folder, "log_envio_s40.txt")  # Usá variable folder si corresponde
+
+    start_time = time.time()
+
+    for i, (_, row) in enumerate(df_forecast_ext.iterrows(), 1):
+        try:
+            create_execution_execute_result(
+                confidence_level=0.92,
+                error_margin=0.07,
+                expected_demand=row['Forecast'],
+                average_daily_demand=row['Average'],
+                lower_bound=row.get('Q_DIAS_STOCK', 0),
+                upper_bound=row.get('Q_VENTA_DIARIA_NORMAL', 0),
+                product_id=row['product_id'],
+                site_id=row['site_id'],
+                supply_forecast_execution_execute_id=forecast_execution_execute_id,
+                algorithm=row['algoritmo'],
+                average=row['Average'],
+                ext_product_code=row['Codigo_Articulo'],
+                ext_site_code=row['Sucursal'],
+                ext_supplier_code=row['id_proveedor'],
+                forcast=row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
+                graphic=row['GRAFICO'],
+                quantity_stock=row.get('Q_TRANSF_PEND', 0),
+                sales_last=row['ventas_last'],
+                sales_previous=row['ventas_previous'],
+                sales_same_year=row['ventas_same_year'],
+                supplier_id=supplier_id,
+                windows=row['ventana'],
+                deliveries_pending=1
+            )
+        except Exception as e:
+            print(f"❌ Error en registro {i}/{total} - ID proveedor {row.get('id_proveedor')} - Artículo {row.get('Codigo_Articulo')}: {e}")
+            continue
+
+        if i % 100 == 0 or i == total:
+            elapsed = round(time.time() - start_time, 2)
+            print(f"✅ Enviados {i} de {total} registros - Tiempo parcial: {elapsed} segundos")
+
+            # Log externo
+            with open(log_path, "a", encoding="utf-8") as log:
+                log.write(f"[{datetime.now()}] Enviados {i} de {total} registros para ejecución {forecast_execution_execute_id} | Tiempo parcial: {elapsed} segundos\n")
+
+            start_time = time.time()  # Reset para siguiente tramo
+
+    print("🎯 Publicación finalizada.")
+
 
 def actualizar_site_ids(df_forecast_ext, conn, name):
     """Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site"""
@@ -147,7 +172,7 @@ def mover_archivos_procesados(algoritmo, folder):
 if __name__ == "__main__":
 
     # Leer Dataframe de FORECAST EXECUTION LISTOS PARA IMPORTAR A CONNEXA (DE 40 A 50)
-    fes = get_excecution_excecute_by_status(40)
+    fes = get_execution_execute_by_status(40)
     
     for index, row in fes[fes["supply_forecast_execution_status_id"] == 40].iterrows():
         algoritmo = row["name"]
@@ -228,7 +253,7 @@ if __name__ == "__main__":
             )
             
             # Publicar en tabla de resultados
-            publish_excecution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id)
+            publish_execution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id)
             print(f"-> Detalle Forecast Publicado CONNEXA: {id_proveedor}, Label: {name}")
                         
             # ✅ Actualizar Estado intermedio de Procesamiento....

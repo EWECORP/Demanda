@@ -1,65 +1,39 @@
-
-"""
-funciones_forecast.py
-
-Este módulo contiene todas las funciones necesarias para:
-- conexión a bases de datos
-- carga de datos históricos
-- ejecución de algoritmos de pronóstico (ALGO_01 a ALGO_06)
-- operaciones sobre ejecuciones de forecast
-
-Debe ser colocado en el mismo directorio que S10_GENERAR_FORECAST_Planificado.py
-o estar en el PYTHONPATH para poder importarse correctamente.
-"""
-
-# Librerías necesarias
+# LIBRERIAS NECESARIAS 
 import base64
 from io import BytesIO
-import os
-import shutil
 import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
-import time
-import getpass
-import uuid
-import warnings
-import traceback
+# LIBRERIAS NECESARIAS 
 from datetime import datetime, timedelta
-
+import numpy as np
 from dotenv import dotenv_values
-import psycopg2 as pg2
-import pyodbc
-
-from statsmodels.tsa.holtwinters import ExponentialSmoothing, Holt
+import psycopg2 as pg2    # Conectores para Postgres
+import pyodbc  # Conector para SQL Server
+import time  # Para medir el tiempo de ejecución
+import getpass  # Para obtener el usuario del sistema operativo
+import uuid  # Importar la librería uuid
+# Mostrar el DataFrame resultante
 import ace_tools_open as tools
 
-# Configuración global
+# Evitar Mensajes Molestos
+import warnings
 warnings.simplefilter(action='ignore', category=UserWarning)
-warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category= FutureWarning)
+from datetime import datetime, timedelta
 
-secrets = dotenv_values(".env")
+# Liberias para Algoritmos
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tsa.holtwinters import Holt
+
+secrets = dotenv_values(".env")   # Connection String from .env
 folder = secrets["FOLDER_DATOS"]
-
-# ---------------------------------------------------------------------
-# A continuación se deben pegar todas las funciones previamente definidas:
-# - Open_Connection, Open_Diarco_Data, Open_Conn_Postgres, Close_Connection
-# - generar_datos, Exportar_Pronostico
-# - Calcular_Demanda_ALGO_01 a ALGO_06
-# - Procesar_ALGO_01 a ALGO_06
-# - get_forecast
-# - get_execution, update_execution, get_execution_execute_by_status
-# - get_execution_parameter
-# ---------------------------------------------------------------------
-
-
 # FUNCIONES OPTIMIZADA PARA EL PRONOSTICO DE DEMANDA
 # Trataremos de Estandarizar las salidas y optimizar el proceso
 # Generaremos datos para regenerar graficos simples al vuelo y grabaremos un gráfico ya precalculado
 # En esta primera etapa en un blob64, luego en un servidor de archivos con un link.
 
 ###----------------------------------------------------------------
-#     DATOS y CONEXIONES A DATOS
+#     DATOS
 ###----------------------------------------------------------------
 def Open_Connection():
     secrets = dotenv_values(".env")   # Connection String from .env
@@ -86,14 +60,12 @@ def Open_Diarco_Data():
 def Open_Conn_Postgres():
     secrets = dotenv_values(".env")   # Cargar credenciales desde .env    
     conn_str = f"dbname={secrets['BASE4']} user={secrets['USUARIO4']} password={secrets['CONTRASENA4']} host={secrets['SERVIDOR4']} port={secrets['PUERTO4']}"
-    for i in range(5):
-        try:
-            conn = pg2.connect(conn_str)
-            return conn 
-        except Exception as e:
-            print(f"Error en la conexión, intento {i+1}/{5}: {e}")
-            time.sleep(10)
-    return None  # Retorna None si todos los intentos fallan
+    try:    
+        conn = pg2.connect(conn_str)
+        return conn
+    except Exception as e:
+        print(f'Error en la conexión: {e}')
+        return None
 
 def Open_Postgres_retry(max_retries=5, wait_seconds=10):
     secrets = dotenv_values(".env")   # Cargar credenciales desde .env    
@@ -108,13 +80,8 @@ def Open_Postgres_retry(max_retries=5, wait_seconds=10):
     return None  # Retorna None si todos los intentos fallan
     
 def Close_Connection(conn): 
-    if conn is not None:
-        conn.close()
-        # print("✅ Conexión cerrada.")    
+    conn.close()
     return True
-
-def id_aleatorio():       # Helper para generar identificadores únicos
-    return str(uuid.uuid4())
 
 def generar_datos(id_proveedor, etiqueta, ventana):
     secrets = dotenv_values(".env")   # Connection String from .env
@@ -316,77 +283,7 @@ def Exportar_Pronostico(df_forecast, proveedor, etiqueta, algoritmo):
         print(f"❌ Error en la inserción: {e}")
     finally:
         Close_Connection(conn)
-        
-
-def get_precios(id_proveedor):
-    conn = Open_Connection()
-    query = f"""
-        SELECT 
-        A.[C_PROVEEDOR_PRIMARIO],
-        S.[C_ARTICULO]
-        ,S.[C_SUCU_EMPR]
-        ,S.[I_PRECIO_VTA]
-        ,S.[I_COSTO_ESTADISTICO]
-        --,S.[M_HABILITADO_SUCU]
-        --,A.M_BAJA                   
-        FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
-        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
-            ON A.[C_ARTICULO] = S.[C_ARTICULO]
-        
-        WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
-            AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
-            AND A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} -- Solo del Proveedor        
-        ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
-    """
-    # Ejecutar la consulta SQL
-    precios = pd.read_sql(query, conn)
-    precios['C_PROVEEDOR_PRIMARIO']= precios['C_PROVEEDOR_PRIMARIO'].astype(int)
-    precios['C_ARTICULO']= precios['C_ARTICULO'].astype(int)
-    precios['C_SUCU_EMPR']= precios['C_SUCU_EMPR'].astype(int)
-    return precios
-
-def actualizar_site_ids(df_forecast_ext, conn, name):
-    """Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site"""
-    query = """
-    SELECT code, name, id FROM public.fnd_site
-    WHERE company_id = 'e7498b2e-2669-473f-ab73-e2c8b4dcc585'
-    ORDER BY code 
-    """
-    stores = pd.read_sql(query, conn)
-    stores = stores[pd.to_numeric(stores['code'], errors='coerce').notna()].copy()
-    stores['code'] = stores['code'].astype(int)
-
-    # Eliminar site_id anterior si ya existía
-    df_forecast_ext = df_forecast_ext.drop(columns=['site_id'], errors='ignore')
-
-    # Merge con los stores para obtener site_id
-    df_forecast_ext = df_forecast_ext.merge(
-        stores[['code', 'id']],
-        left_on='Sucursal',
-        right_on='code',
-        how='left'
-    ).rename(columns={'id': 'site_id'})
-
-    # Validar valores faltantes
-    missing = df_forecast_ext[df_forecast_ext['site_id'].isna()]
-    if not missing.empty:
-        print(f"⚠️ Faltan site_id en {len(missing)} registros")
-        missing.to_csv(f"{folder}/{name}_Missing_Site_IDs.csv", index=False)
-    else:
-        print("✅ Todos los registros tienen site_id válido")
-
-    return df_forecast_ext
-
-def mover_archivos_procesados(algoritmo, folder):    # Movel a procesado los archivos.
-    destino = os.path.join(folder, "procesado")
-    os.makedirs(destino, exist_ok=True)  # Crea la carpeta si no existe
-
-    for archivo in os.listdir(folder):
-        if archivo.startswith(algoritmo):
-            origen = os.path.join(folder, archivo)
-            destino_final = os.path.join(destino, archivo)
-            shutil.move(origen, destino_final)
-            print(f"📁 Archivo movido: {archivo} → {destino_final}")
+        print("✅ Conexión cerrada.")
 
 ###----------------------------------------------------------------
 #     ALGORITMOS
@@ -1005,9 +902,7 @@ def Procesar_ALGO_01(data, proveedor, etiqueta, ventana, fecha, factor_last=None
     Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_01')  # Impactar Datos en la Interface        
     return
 
-###---------------------------------------------------------------- 
-# RUTINA PRINCIPAL para SELECCIONAR  el ALGORITMO de FORECAST
-###---------------------------------------------------------------- 
+# RUTINA PRINCIPAL para obtener el pronóstico
 def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic', f1=None, f2=None, f3=None, current_date=None ):
     """
     Genera la predicción de demanda según el algoritmo seleccionado.
@@ -1053,140 +948,6 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
             return Procesar_ALGO_06(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Tendencias Ventas Semanales
         case _:
             raise ValueError(f"Error: El algoritmo '{algorithm}' no está implementado.")
-
-
-# -----------------------------------------------------------
-# 0. Rutinas Locales para la generación de gráficos
-# -----------------------------------------------------------
-def generar_mini_grafico( folder, name):
-    # Recuperar Historial de Ventas
-    df_ventas = pd.read_csv(f'{folder}/{name}_Ventas.csv')
-    df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
-    df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
-    df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
-
-    fecha_maxima = df_ventas["Fecha"].max()
-    df_filtrado = df_ventas[df_ventas["Fecha"] >= (fecha_maxima - pd.Timedelta(days=150))].copy()
-
-    # Ventas Semanales
-    df_filtrado["Mes"] = df_filtrado["Fecha"].dt.to_period("M").astype(str)
-    df_mes = df_filtrado.groupby("Mes")["Unidades"].sum().reset_index()
-
-    # Crear el gráfico compacto
-    fig, ax = plt.subplots(figsize=(3, 1))  # Tamaño pequeño para una visualización compacta
-    # ax.bar(df_mes["Mes"], df_mes["Unidades"], color=["red", "blue", "green", "orange", "purple", "brown"], alpha=0.7)
-    # Usar el índice como secuencia de registros
-    ax.bar(range(1, len(df_mes) + 1), df_mes["Unidades"], color=["red", "blue", "green", "orange", "purple", "brown"], alpha=0.7)
-
-    # Eliminar ejes y etiquetas para que sea más compacto
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    
-    # Mostrar el gráfico
-    # plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Ajustar para no solapar con el título
-
-    # Guardar gráfico en base64
-    buffer = BytesIO()
-    plt.savefig(buffer, format="png")
-    plt.close()
-    
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")    
-
-def generar_grafico_base64(dfv, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
-    fecha_maxima = dfv["Fecha"].max()
-    df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
-    df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
-
-    fig, ax = plt.subplots(
-        figsize=(8, 6), nrows= 2, ncols= 2
-    )
-    fig.suptitle(f"Demanda Articulo {articulo} - Sucursal {sucursal}")
-    current_ax = 0
-    #Bucle para Llenar los gráficos
-    colors =["red", "blue", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
-
-    # Ventas Diarias
-    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
-
-    # Ventas Diarias
-    ax[0, 0].plot(df_filtrado["Fecha"], df_filtrado["Unidades"], marker="o", linestyle="-", label="Ventas", color=colors[0])
-    ax[0, 0].plot(df_filtrado["Fecha"], df_filtrado["Media_Movil"], linestyle="--", label="Media Móvil (7 días)", color="black")
-    ax[0, 0].set_title("Ventas Diarias")
-    ax[0, 0].legend()
-    ax[0, 0].set_xlabel("Fecha")
-    ax[0, 0].set_ylabel("Unidades")
-    ax[0, 0].tick_params(axis='x', rotation=45)
-
-    # Ventas Semanales
-    df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
-    df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
-    df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
-    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
-
-    # Histograma de ventas semanales
-    ax[0, 1].bar(df_semanal["Semana_Num"], df_semanal["Unidades"], color=[colors[1],colors[2], colors[3], colors[4], colors[5]], alpha=0.7)
-    ax[0, 1].set_xlabel("Semana del Año")
-    ax[0, 1].set_ylabel("Unidades Vendidas")
-    ax[0, 1].set_title("Histograma de Ventas Semanales")
-    ax[0, 1].tick_params(axis='x', rotation=60)
-    ax[0, 1].grid(axis="y", linestyle="--", alpha=0.7)
-
-    # Graficar el Forecast vs Ventas Reales en la tercera celda
-    labels = ["Forecast","Actual", "Anterior", "Año Ant"]
-    values = [Forecast, ventas_last, ventas_previous, ventas_same_year]
-
-    ax[1, 0].bar(labels, values, color=[colors[2], colors[3], colors[4], colors[5]], alpha=0.7)
-    ax[1, 0].set_title("Forecast vs Ventas Anteriores")
-    ax[1, 0].set_ylabel("Unidades")
-    ax[1, 0].grid(axis="y", linestyle="--", alpha=0.7)
-
-    # Definir fechas de referencia
-    fecha_maxima = df_filtrado["Fecha"].max()
-    fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
-    fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
-    fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
-    fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
-
-    # Calcular ventas de los últimos 30 días
-    ventas_ultimos_30 = df_filtrado[(df_filtrado["Fecha"] > fecha_inicio_ultimos30)]["Unidades"].sum()
-
-    # Calcular ventas de los 30 días previos a los últimos 30 días
-    ventas_previos_30 = df_filtrado[
-        (df_filtrado["Fecha"] > fecha_inicio_previos30) & (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
-    ]["Unidades"].sum()
-
-    # Simulación de datos para las ventas del año anterior
-    df_filtrado_anio_anterior = df_filtrado.copy()
-    df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
-    ventas_mismo_periodo_anio_anterior = df_filtrado_anio_anterior[
-        (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
-        (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
-    ]["Unidades"].sum()
-
-    # Datos para el histograma
-    labels = ["Últimos 30", "Anteriores 30", "Año anterior", "Average"]
-    values = [ventas_ultimos_30, ventas_previos_30, ventas_mismo_periodo_anio_anterior, Average]
-
-    # Graficar el histograma en la celda [1,1]
-    ax[1, 1].bar(labels, values, color=[colors[0], colors[1], colors[2]], alpha=0.7)
-    ax[1, 1].set_title("Comparación de Ventas en 3 Períodos")
-    ax[1, 1].set_ylabel("Unidades Vendidas")
-    ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)
-
-    # Mostrar el gráfico
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Ajustar para no solapar con el título
-
-    # Guardar gráfico en base64
-    buffer = BytesIO()
-    plt.savefig(buffer, format="png")
-    plt.close()
-    
-    return base64.b64encode(buffer.getvalue()).decode("utf-8")
-
 
 
 # -----------------------------------------------------------
@@ -1255,37 +1016,8 @@ def update_execution(execution_id, **kwargs):
         return None
     finally:
         Close_Connection(conn)
-        
 
-def get_execution_by_status(status):
-    if not status:
-        print("No hay estados para filtrar")
-        return None
-    
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        query = f"""
-        SELECT id, description, name, "timestamp", supply_forecast_model_id, ext_supplier_code, graphic, 
-                monthly_net_margin_in_millions, monthly_purchases_in_millions, monthly_sales_in_millions, sotck_days, sotck_days_colors, 
-                supplier_id, supply_forecast_execution_status_id
-                FROM public.spl_supply_forecast_execution
-                WHERE supply_forecast_execution_status_id = {status};
-        """
-        # Ejecutar la consulta SQL
-        fexsts = pd.read_sql(query, conn)
-        return fexsts
-    except Exception as e:
-        print(f"Error en get_execution_status: {e}")
-        return None
-    finally:
-        Close_Connection(conn)
-        
-# Comentario 1 antes del simbolo raro.
-
-# Comentario 1
-def get_execution_execute_by_status(status):
+def get_excecution_excecute_by_status(status):
     if not status:
         print("No hay estados para filtrar")
         return None
@@ -1324,13 +1056,13 @@ def get_execution_execute_by_status(status):
         fexsts = pd.read_sql(query, conn)
         return fexsts
     except Exception as e:
-        print(f"Error en get_execution_status: {e}")
+        print(f"Error en get_excecution_status: {e}")
         return None
     finally:
-        Close_Connection(conn)
-        
+        Close_Connection(conn) 
 
-def get_execution_execute_parameter(supply_forecast_model_id, execution_id):
+
+def get_execution_parameter(supply_forecast_model_id, execution_id):
     conn = Open_Postgres_retry()
     if conn is None:
         return None
@@ -1371,321 +1103,50 @@ def get_execution_execute_parameter(supply_forecast_model_id, execution_id):
         return None
     finally:
         Close_Connection(conn)
-                
-
-# -----------------------------------------------------------
-# 4. Operaciones CRUD para spl_supply_forecast_execution_parameter
-# -----------------------------------------------------------
-def create_execution_parameter(supply_forecast_execution_id, supply_forecast_model_parameter_id, value):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        id_exec_param = id_aleatorio()
-        timestamp = datetime.utcnow()
-        query = """
-            INSERT INTO public.spl_supply_forecast_execution_parameter(
-                id, "timestamp", supply_forecast_execution_id, supply_forecast_model_parameter_id, value
-            )
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        cur.execute(query, (id_exec_param, timestamp, supply_forecast_execution_id, supply_forecast_model_parameter_id, value))
-        conn.commit()
-        cur.close()
-        return id_exec_param
-    except Exception as e:
-        print(f"Error en create_execution_parameter: {e}")
-        conn.rollback()
-        return None
-    finally:
-        Close_Connection(conn)
-
-def get_execution_parameter(exec_param_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        query = """
-            SELECT id, "timestamp", supply_forecast_execution_id, supply_forecast_model_parameter_id, value
-            FROM public.spl_supply_forecast_execution_parameter
-            WHERE id = %s
-        """
-        cur.execute(query, (exec_param_id,))
-        row = cur.fetchone()
-        cur.close()
-        if row:
-            return {
-                "id": row[0],
-                "timestamp": row[1],
-                "supply_forecast_execution_id": row[2],
-                "supply_forecast_model_parameter_id": row[3],
-                "value": row[4]
-            }
-        return None
-    except Exception as e:
-        print(f"Error en get_execution_parameter: {e}")
-        return None
-    finally:
-        Close_Connection(conn)
-
-def update_execution_parameter(exec_param_id, **kwargs):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        set_clause =  ", ".join([f"{key} = %s" for key in kwargs.keys()])
-        values = list(kwargs.values())
-        values.append(exec_param_id)
-        query = f"""
-            UPDATE public.spl_supply_forecast_execution_parameter
-            SET {set_clause}
-            WHERE id = %s
-        """
-        cur.execute(query, tuple(values))
-        conn.commit()
-        cur.close()
-        return get_execution_parameter(exec_param_id)
-    except Exception as e:
-        print(f"Error en update_execution_parameter: {e}")
-        conn.rollback()
-        return None
-    finally:
-        Close_Connection(conn)
-
-def delete_execution_parameter(exec_param_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return False
-    try:
-        cur = conn.cursor()
-        query = """
-            DELETE FROM public.spl_supply_forecast_execution_parameter
-            WHERE id = %s
-        """
-        cur.execute(query, (exec_param_id,))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print(f"Error en delete_execution_parameter: {e}")
-        conn.rollback()
-        return False
-    finally:
-        Close_Connection(conn)
-
-# -----------------------------------------------------------
-# 5. Operaciones CRUD para spl_supply_forecast_execution_execute
-# -----------------------------------------------------------
-def create_execution_execute(end_execution, last_execution, start_execution, supply_forecast_execution_id, supply_forecast_execution_schedule_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        id_exec = id_aleatorio()
-        timestamp = datetime.utcnow()
-        query = """
-            INSERT INTO public.spl_supply_forecast_execution_execute(
-                id, end_execution, last_execution, start_execution, "timestamp", supply_forecast_execution_id, supply_forecast_execution_schedule_id
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """
-        cur.execute(query, (id_exec, end_execution, last_execution, start_execution, timestamp, supply_forecast_execution_id, supply_forecast_execution_schedule_id))
-        conn.commit()
-        cur.close()
-        return id_exec
-    except Exception as e:
-        print(f"Error en create_execution_execute: {e}")
-        conn.rollback()
-        return None
-    finally:
-        Close_Connection(conn)
-
-def get_execution_execute(exec_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        query = """
-            SELECT id, end_execution, last_execution, start_execution, "timestamp", supply_forecast_execution_id, supply_forecast_execution_schedule_id
-            FROM public.spl_supply_forecast_execution_execute
-            WHERE id = %s
-        """
-        cur.execute(query, (exec_id,))
-        row = cur.fetchone()
-        cur.close()
-        if row:
-            return {
-                "id": row[0],
-                "end_execution": row[1],
-                "last_execution": row[2],
-                "start_execution": row[3],
-                "timestamp": row[4],
-                "supply_forecast_execution_id": row[5],
-                "supply_forecast_execution_schedule_id": row[6]
-            }
-        return None
-    except Exception as e:
-        print(f"Error en get_execution_execute: {e}")
-        return None
-    finally:
-        Close_Connection(conn)
-
-def update_execution_execute(exec_id, **kwargs):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        set_clause = ", ".join([f"{key} = %s" for key in kwargs.keys()])
-        values = list(kwargs.values())
-        values.append(exec_id)
-        query = f"""
-            UPDATE public.spl_supply_forecast_execution_execute
-            SET {set_clause}
-            WHERE id = %s
-        """
-        cur.execute(query, tuple(values))
-        conn.commit()
-        cur.close()
-        return get_execution_execute(exec_id)
-    except Exception as e:
-        print(f"Error en update_execution_execute: {e}")
-        conn.rollback()
-        return None
-    finally:
-        Close_Connection(conn)
-
-def delete_execution_execute(exec_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return False
-    try:
-        cur = conn.cursor()
-        query = """
-            DELETE FROM public.spl_supply_forecast_execution_execute
-            WHERE id = %s
-        """
-        cur.execute(query, (exec_id,))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print(f"Error en delete_execution_execute: {e}")
-        conn.rollback()
-        return False
-    finally:
-        Close_Connection(conn)
-
-# -----------------------------------------------------------
-# 6. Operaciones CRUD para spl_supply_forecast_execution_execute_result
-# -----------------------------------------------------------
-def create_execution_execute_result(confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, upper_bound,
-                                    product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code,
-                                    forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, deliveries_pending):
-    conn = Open_Postgres_retry()
-    if conn is None:
-        print("❌ No se pudo conectar después de varios intentos")
-        return None
-    try:
-        cur = conn.cursor()
-        id_result = id_aleatorio()
-        timestamp = datetime.utcnow()
-        query = """
-            INSERT INTO public.spl_supply_forecast_execution_execute_result (
-                id, confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, "timestamp", upper_bound, 
-                product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, 
-                forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
-                deliveries_pending
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cur.execute(query, (id_result, confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, timestamp, upper_bound, 
-                            product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code,
-                            forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, deliveries_pending))
-        conn.commit()
-        cur.close()
-        return id_result
-    except Exception as e:
-        print(f"Error en create_execution_execute_result: {e}")
-        conn.rollback()
-        return None
-    finally:
-        Close_Connection(conn)
-
-def get_execution_execute_result(result_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        query = """
-            SELECT * FROM public.spl_supply_forecast_execution_execute_result
-            WHERE id = %s
-        """
-        cur.execute(query, (result_id,))
-        row = cur.fetchone()
-        cur.close()
-        if row:
-            columns = [desc[0] for desc in cur.description]
-            return dict(zip(columns, row))
-        return None
-    except Exception as e:
-        print(f"Error en get_execution_execute_result: {e}")
-        return None
-    finally:
-        Close_Connection(conn)
-
-def update_execution_execute_result(result_id, **kwargs):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return None
-    try:
-        cur = conn.cursor()
-        set_clause = ", ".join([f"{key} = %s" for key in kwargs.keys()])
-        values = list(kwargs.values())
-        values.append(result_id)
-        query = f"""
-            UPDATE public.spl_supply_forecast_execution_execute_result
-            SET {set_clause}
-            WHERE id = %s
-        """
-        cur.execute(query, tuple(values))
-        conn.commit()
-        cur.close()
-        return get_execution_execute_result(result_id)
-    except Exception as e:
-        print(f"Error en update_execution_execute_result: {e}")
-        conn.rollback()
-        return None
-    finally:
-        Close_Connection(conn)
-
-def delete_execution_execute_result(result_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return False
-    try:
-        cur = conn.cursor()
-        query = """
-            DELETE FROM public.spl_supply_forecast_execution_execute_result
-            WHERE id = %s
-        """
-        cur.execute(query, (result_id,))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print(f"Error en delete_execution_execute_result: {e}")
-        conn.rollback()
-        return False
-    finally:
-        Close_Connection(conn)
-
-
 
 # Final del MODULO FUNCIONES
+
+
+#----------------------------------------------------------------
+# RUTINA PRINCIPAL
+#----------------------------------------------------------------       
+
+if __name__ == "__main__":
+    # Aquí se inicia la ejecución programada del pronóstico
+    print("🕒 Iniciando ejecución programada del FORECAST ...")
+    try:
+        # Ejecuta la rutina completa
+        fes = get_excecution_excecute_by_status(10)
+        for index, row in fes[fes["supply_forecast_execution_status_id"] == 10].iterrows():
+            algoritmo = row["name"]
+            name = algoritmo.split('_ALGO')[0]
+            method = row["method"]
+            execution_id = row["id"]
+            id_proveedor = row["ext_supplier_code"]
+            forecast_execution_execute_id = row["forecast_execution_execute_id"]
+            supplier_id = row["supplier_id"]
+            supply_forecast_model_id = row["supply_forecast_model_id"]
+
+            print(f"Procesando ejecución: {name} - Método: {method}")
+
+            try:
+                df_params = get_execution_parameter(supply_forecast_model_id, execution_id)
+                param_dict = df_params.set_index('name')['value'].to_dict() if df_params is not None and not df_params.empty else {}
+                try:
+                    ventana = int(float(param_dict.get('1_Window', 30)))
+                except (ValueError, TypeError):
+                    ventana = 30
+                f1 = param_dict.get('f1', None)
+                f2 = param_dict.get('f2', None)
+                f3 = param_dict.get('f3', None)
+
+                update_execution(execution_id, supply_forecast_execution_status_id=15)
+                get_forecast(id_proveedor, name, ventana, method, f1, f2, f3)
+                update_execution(execution_id, supply_forecast_execution_status_id=20)
+
+                print("✅ Ejecución completada con éxito.")
+            except Exception as e:
+                print(f"❌ Error durante la ejecución del forecast: {e}")
+    except Exception as e:
+        print(f"❌ Error general al iniciar ejecuciones programadas: {e}")
+

@@ -13,7 +13,7 @@ Fecha de creación: [2025-03-22]
 from funciones_forecast import (
     Open_Conn_Postgres,
     Close_Connection,
-    get_excecution_by_status,
+    get_execution_by_status,
     update_execution
 )
 
@@ -53,7 +53,6 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     stores['code'] = stores['code'].astype(int)
 
     # Leer Dataframe de los PRODUCTOS
-    conn =Open_Conn_Postgres()
     query = """
     SELECT ext_code, description, id FROM public.fnd_product
     ORDER BY ext_code;
@@ -63,6 +62,8 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     # Intentar convertir el campo 'code' a int, eliminando las filas que no se puedan convertir
     products = products[pd.to_numeric(products['ext_code'], errors='coerce').notna()].copy()
     products['ext_code'] = products['ext_code'].astype(int)
+    
+    Close_Connection(conn)
 
     #Unir los dataframes por Codigo_Articulo = ext_code
     df_merged = df_forecast.merge(products, left_on='Codigo_Articulo', right_on='ext_code', how='left')
@@ -100,7 +101,7 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
 
 # Punto de entrada
 if __name__ == "__main__":
-    fes = get_excecution_by_status(20)
+    fes = get_execution_by_status(20)
 
 # Filtrar registros con supply_forecast_execution_status_id = 20  #FORECAST OK
 for index, row in fes[fes["supply_forecast_execution_status_id"] == 20].iterrows():
@@ -112,18 +113,18 @@ for index, row in fes[fes["supply_forecast_execution_status_id"] == 20].iterrows
     
     try:
         # Llamar a la función que genera los gráficos y datos extendidos
-        df_merged = extender_datos_forecast(algoritmo, name, id_proveedor)
+        df_extendido = extender_datos_forecast(algoritmo, name, id_proveedor)
 
         # Guardar el archivo CSV
         file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
-        df_merged.to_csv(file_path, index=False)
+        df_extendido.to_csv(file_path, index=False)
         print(f"Archivo guardado: {file_path}")
 
         # Actualizar el status_id a 40 en el DataFrame original
         fes.at[index, "supply_forecast_execution_status_id"] = 30
         # ✅ Actualizar directamente en la base de datos el estado a 30
         update_execution(execution_id, supply_forecast_execution_status_id=30)
-        print(f"Estado actualizado a 40 para {execution_id}")
+        print(f"Estado actualizado a 30 para {execution_id}")
 
     except Exception as e:
         print(f"Error procesando {name}: {e}")
