@@ -1259,6 +1259,11 @@ def update_execution(execution_id, **kwargs):
         Close_Connection(conn)
         
 
+
+# -----------------------------------------------------------
+# 3.1 Operaciones CUSTOM para spl_supply_forecast_execution
+# -----------------------------------------------------------
+
 def get_execution_by_status(status):
     if not status:
         print("No hay estados para filtrar")
@@ -1481,28 +1486,69 @@ def delete_execution_parameter(exec_param_id):
 # -----------------------------------------------------------
 # 5. Operaciones CRUD para spl_supply_forecast_execution_execute
 # -----------------------------------------------------------
-def create_execution_execute(end_execution, last_execution, start_execution, supply_forecast_execution_id, supply_forecast_execution_schedule_id):
+
+def create_execution_execute(data_dict):
     conn = Open_Conn_Postgres()
     if conn is None:
         return None
+
     try:
         cur = conn.cursor()
         id_exec = id_aleatorio()
         timestamp = datetime.utcnow()
-        query = """
+
+        # Lista de columnas según la nueva estructura
+        columns = [
+            "id", "end_execution", "last_execution", "start_execution", "timestamp",
+            "supply_forecast_execution_id", "supply_forecast_execution_schedule_id",
+            "ext_supplier_code", "graphic", "monthly_net_margin_in_millions",
+            "monthly_purchases_in_millions", "monthly_sales_in_millions", "sotck_days",
+            "sotck_days_colors", "supplier_id", "supply_forecast_execution_status_id",
+            "contains_breaks", "maximum_backorder_days", "otif", "total_products", "total_units"
+        ]
+
+        values = [
+            id_exec,
+            data_dict.get("end_execution"),
+            data_dict.get("last_execution"),
+            data_dict.get("start_execution"),
+            timestamp,
+            data_dict.get("supply_forecast_execution_id"),
+            data_dict.get("supply_forecast_execution_schedule_id"),
+            data_dict.get("ext_supplier_code"),
+            data_dict.get("graphic"),
+            data_dict.get("monthly_net_margin_in_millions"),
+            data_dict.get("monthly_purchases_in_millions"),
+            data_dict.get("monthly_sales_in_millions"),
+            data_dict.get("sotck_days"),
+            data_dict.get("sotck_days_colors"),
+            data_dict.get("supplier_id"),
+            data_dict.get("supply_forecast_execution_status_id"),
+            data_dict.get("contains_breaks"),
+            data_dict.get("maximum_backorder_days"),
+            data_dict.get("otif"),
+            data_dict.get("total_products"),
+            data_dict.get("total_units")
+        ]
+
+        insert_query = f"""
             INSERT INTO public.spl_supply_forecast_execution_execute(
-                id, end_execution, last_execution, start_execution, "timestamp", supply_forecast_execution_id, supply_forecast_execution_schedule_id
+                {', '.join(columns)}
+            ) VALUES (
+                {', '.join(['%s'] * len(columns))}
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
-        cur.execute(query, (id_exec, end_execution, last_execution, start_execution, timestamp, supply_forecast_execution_id, supply_forecast_execution_schedule_id))
+
+        cur.execute(insert_query, values)
         conn.commit()
         cur.close()
         return id_exec
+
     except Exception as e:
         print(f"Error en create_execution_execute: {e}")
         conn.rollback()
         return None
+
     finally:
         Close_Connection(conn)
 
@@ -1510,30 +1556,37 @@ def get_execution_execute(exec_id):
     conn = Open_Conn_Postgres()
     if conn is None:
         return None
+
     try:
         cur = conn.cursor()
-        query = """
-            SELECT id, end_execution, last_execution, start_execution, "timestamp", supply_forecast_execution_id, supply_forecast_execution_schedule_id
+
+        columns = [
+            "id", "end_execution", "last_execution", "start_execution", "timestamp",
+            "supply_forecast_execution_id", "supply_forecast_execution_schedule_id",
+            "ext_supplier_code", "graphic", "monthly_net_margin_in_millions",
+            "monthly_purchases_in_millions", "monthly_sales_in_millions", "sotck_days",
+            "sotck_days_colors", "supplier_id", "supply_forecast_execution_status_id",
+            "contains_breaks", "maximum_backorder_days", "otif", "total_products", "total_units"
+        ]
+
+        select_query = f"""
+            SELECT {', '.join(columns)}
             FROM public.spl_supply_forecast_execution_execute
             WHERE id = %s
         """
-        cur.execute(query, (exec_id,))
+
+        cur.execute(select_query, (exec_id,))
         row = cur.fetchone()
         cur.close()
+
         if row:
-            return {
-                "id": row[0],
-                "end_execution": row[1],
-                "last_execution": row[2],
-                "start_execution": row[3],
-                "timestamp": row[4],
-                "supply_forecast_execution_id": row[5],
-                "supply_forecast_execution_schedule_id": row[6]
-            }
+            return dict(zip(columns, row))
         return None
+
     except Exception as e:
         print(f"Error en get_execution_execute: {e}")
         return None
+
     finally:
         Close_Connection(conn)
 
@@ -1582,6 +1635,32 @@ def delete_execution_execute(exec_id):
         return False
     finally:
         Close_Connection(conn)
+        
+def new_last_execution_execute(exec_id):
+    conn = Open_Conn_Postgres()
+    if conn is None:
+        return False
+
+    try:
+        cur = conn.cursor()
+        query = """
+            UPDATE public.spl_supply_forecast_execution_execute
+            SET last_execution = false
+            WHERE id = %s
+        """
+        cur.execute(query, (exec_id,))
+        conn.commit()
+        cur.close()
+        return True
+
+    except Exception as e:
+        print(f"Error en delete_execution_execute (soft delete): {e}")
+        conn.rollback()
+        return False
+
+    finally:
+        Close_Connection(conn)
+
 
 # -----------------------------------------------------------
 # 6. Operaciones CRUD para spl_supply_forecast_execution_execute_result
