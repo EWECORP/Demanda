@@ -140,64 +140,56 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
         # ----------------------------------------------------------------
         query = f"""
-            SELECT A.[C_PROVEEDOR_PRIMARIO]
+        SELECT A.[C_PROVEEDOR_PRIMARIO]
             ,S.[C_ARTICULO]
             ,S.[C_SUCU_EMPR]
-			--,R.[C_SUCU_EMPR]
-			--,R.[C_ARTICULO]
             ,S.[I_PRECIO_VTA]
             ,S.[I_COSTO_ESTADISTICO]
-            ,S.[Q_FACTOR_VENTA_ESP]
             ,S.[Q_FACTOR_VTA_SUCU]
+            ,S.[Q_BULTOS_PENDIENTE_OC]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_PESO_PENDIENTE_OC]
+            ,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+            ,ST.Q_UNID_ARTICULO AS Q_STOCK_UNIDADES-- Stock Cierre Dia Anterior
+            ,ST.Q_PESO_ARTICULO AS Q_STOCK_PESO
             ,S.[M_OFERTA_SUCU]
             ,S.[M_HABILITADO_SUCU]
-            ,A.M_BAJA
-            --,S.[Q_VTA_DIA_ANT]
-            --,S.[Q_VTA_ACUM]
-            --,S.[Q_ULT_ING_STOCK]
-            --,S.[Q_STOCK_A_ULT_ING]
-            --,S.[Q_15DIASVTA_A_ULT_ING_STOCK]
-            --,S.[Q_30DIASVTA_A_ULT_ING_STOCK]
-            --,S.[Q_BULTOS_PENDIENTE_OC]
-            --,S.[Q_PESO_PENDIENTE_OC]
-            --,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+            ,S.[M_FOLDER]
+            ,A.M_BAJA  --- Puede no ser necesaria al hacer inner
             --,S.[Q_UNID_PESO_VTA_MES_ACTUAL]
             ,S.[F_ULTIMA_VTA]
-            ,S.[Q_VTA_ULTIMOS_15DIAS]
-            ,S.[Q_VTA_ULTIMOS_30DIAS]
-            ,S.[Q_TRANSF_PEND]
-            ,S.[Q_TRANSF_EN_PREP]
-            --,S.[M_FOLDER]
-            --,S.[M_ALTA_RENTABILIDAD]
-            --,S.[Lugar_Abastecimiento]
-            --,S.[M_COSTO_LOGISTICO]
+            ,S.[Q_VTA_ULTIMOS_15DIAS]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_VTA_ULTIMOS_30DIAS]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_TRANSF_PEND]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_TRANSF_EN_PREP]-- OJO esto está en BULTOS DIARCO
             --,A.[N_ARTICULO]
             ,A.[C_FAMILIA]
             ,A.[C_RUBRO]
-
-            ,R.[Q_VENTA_30_DIAS]
-            ,R.[Q_VENTA_15_DIAS]
-            ,R.[Q_VENTA_DOMINGO]
-            ,R.[Q_VENTA_ESPECIAL_30_DIAS]
-            ,R.[Q_VENTA_ESPECIAL_15_DIAS]
-            ,R.[Q_DIAS_CON_STOCK]
-            ,R.[Q_REPONER]
-            ,R.[Q_REPONER_INCLUIDO_SOBRE_STOCK]
-
-            ,R.[Q_VENTA_DIARIA_NORMAL]
+            ,A.[C_CLASIFICACION_COMPRA] -- ojo nombre erroneo en la contratabla
+            ,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) AS Q_VENTA_ACUM_30 -- OJO esto está en BULTOS DIARCO
+            ,R.[Q_DIAS_CON_STOCK] -- Cantidad de dias para promediar venta diaria
+            ,R.[Q_REPONER] -- OJO esto está en BULTOS DIARCO
+            ,R.[Q_REPONER_INCLUIDO_SOBRE_STOCK]-- OJO esto está en BULTOS DIARCO (Venta Promedio * Comprar Para + Lead Time - STOCK - PEND, OC)
+                --- Ojo la venta promerio excluye  las oferta para no alterar el promedio
+            ,R.[Q_VENTA_DIARIA_NORMAL]-- OJO esto está en BULTOS DIARCO
             ,R.[Q_DIAS_STOCK]
             ,R.[Q_DIAS_SOBRE_STOCK]
             ,R.[Q_DIAS_ENTREGA_PROVEEDOR]
-        
+                
         FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
-        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+        INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
             ON A.[C_ARTICULO] = S.[C_ARTICULO]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] ST
+            ON ST.C_ARTICULO = S.[C_ARTICULO] 
+            AND ST.C_SUCU_EMPR = S.[C_SUCU_EMPR]
         LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_PARAM_STOCK] P
             ON P.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
-            AND P.[C_FAMILIA] =A.[C_FAMILIA]
-		LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
-			ON R.[C_ARTICULO] = S.[C_ARTICULO]
-			AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+            AND P.[C_FAMILIA] = A.[C_FAMILIA]
+            AND P.[C_RUBRO] = A.[C_RUBRO]
+            AND P.[C_CLAISIFICACION_COMPRA] = A.[C_CLASIFICACION_COMPRA]  -- ojo nombre erroneo
+        AND P.[C_FAMILIA] =A.[C_FAMILIA]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
+            ON R.[C_ARTICULO] = S.[C_ARTICULO]
+            AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
 
         WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
             AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
@@ -1302,30 +1294,25 @@ def get_execution_execute_by_status(status):
         return None
     try:
         query = f"""
-            SELECT 
-                a.id, 
-                a.description, 
-                a.name, 
-				m.method,
-                a."timestamp", 
-                a.supply_forecast_model_id, 
-                a.ext_supplier_code, 
-                a.graphic, 
-                a.monthly_net_margin_in_millions, 
-                a.monthly_purchases_in_millions, 
-                a.monthly_sales_in_millions, 
-                a.sotck_days AS stock_days,  -- Posible corrección
-                a.sotck_days_colors AS stock_days_colors, -- Posible corrección
-                a.supplier_id, 
-                a.supply_forecast_execution_status_id,
-                b.supply_forecast_execution_schedule_id AS forecast_execution_schedule_id, 
-                b.id AS forecast_execution_execute_id
-            FROM public.spl_supply_forecast_execution a
-            LEFT JOIN public.spl_supply_forecast_execution_execute b
-                ON b.supply_forecast_execution_id = a.id
-			LEFT JOIN public.spl_supply_forecast_model m
-				ON a.supply_forecast_model_id= m.id
-            WHERE a.supply_forecast_execution_status_id = {status};
+        SELECT   e.name, 
+            m.method,
+            fee.ext_supplier_code, 
+            fee.last_execution,
+            fee.supply_forecast_execution_status_id as status_id,
+            fee.timestamp,
+            e.supply_forecast_model_id as forecast_model_id,
+            fee.supply_forecast_execution_id as forecast_execution_id, 
+            fee.id as forecast_execution_execute_id,
+            fee.supply_forecast_execution_schedule_id as forecast_execution_schedule_id,
+            e.supplier_id
+            
+        FROM public.spl_supply_forecast_execution_execute as fee
+            LEFT JOIN  public.spl_supply_forecast_execution as e
+                ON fee.supply_forecast_execution_id = e.id
+            LEFT JOIN public.spl_supply_forecast_model as m
+                ON e.supply_forecast_model_id= m.id
+
+        WHERE fee.supply_forecast_execution_status_id = {status};
         """
         # Ejecutar la consulta SQL
         fexsts = pd.read_sql(query, conn)
@@ -1334,10 +1321,9 @@ def get_execution_execute_by_status(status):
         print(f"Error en get_execution_status: {e}")
         return None
     finally:
-        Close_Connection(conn)
-        
+        Close_Connection(conn)       
 
-def get_execution_execute_parameter(supply_forecast_model_id, execution_id):
+def get_execution_parameter(supply_forecast_model_id, execution_id):
     conn = Open_Postgres_retry()
     if conn is None:
         return None
@@ -1354,7 +1340,7 @@ def get_execution_execute_parameter(supply_forecast_model_id, execution_id):
                 mp.supply_forecast_model_id, 
                 ep.supply_forecast_execution_id
             FROM public.spl_supply_forecast_model_parameter mp	
-            LEFT JOIN public.spl_supply_forecast_execution_parameter ep
+            FULL JOIN public.spl_supply_forecast_execution_parameter ep
                 ON ep.supply_forecast_model_parameter_id = mp.id
             WHERE mp.supply_forecast_model_id = %s
                 AND ep.supply_forecast_execution_id = %s

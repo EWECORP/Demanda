@@ -21,9 +21,6 @@ Fecha de creación: [2025-03-22]
 # Solo importar lo necesario desde el módulo de funciones
 from funciones_forecast import (
     Open_Conn_Postgres,
-    Close_Connection,
-    get_execution_by_status,
-    Open_Postgres_retry,
     mover_archivos_procesados,
     actualizar_site_ids,
     get_precios,

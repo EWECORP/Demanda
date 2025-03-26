@@ -17,7 +17,6 @@ import pandas as pd
 # Solo importa lo necesario desde el módulo de funciones
 from funciones_forecast import (
     get_forecast,
-    Open_Connection,
     generar_datos,
     Procesar_ALGO_01,
     Procesar_ALGO_02,
@@ -27,7 +26,7 @@ from funciones_forecast import (
     Procesar_ALGO_06,    
     generar_datos,    
     get_execution_execute_by_status,
-    get_execution_execute_parameter,
+    get_execution_parameter,
     update_execution
 )
 
@@ -102,7 +101,7 @@ if __name__ == "__main__":
             print(f"Procesando ejecución: {name} - Método: {method}")
 
             try:
-                df_params = get_execution_execute_parameter(supply_forecast_model_id, execution_id)
+                df_params = get_execution_parameter(supply_forecast_model_id, execution_id)
                 param_dict = df_params.set_index('name')['value'].to_dict() if df_params is not None and not df_params.empty else {}
                 try:
                     ventana = int(float(param_dict.get('1_Window', 30)))
