@@ -26,8 +26,9 @@ from funciones_forecast import (
     Procesar_ALGO_06,    
     generar_datos,    
     get_execution_execute_by_status,
-    get_execution_parameter,
-    update_execution
+    get_full_parameters,
+    update_execution,
+    update_execution_execute
 )
 
 # FUNCIONES LOCALES
@@ -88,20 +89,20 @@ if __name__ == "__main__":
     try:
         # Ejecuta la rutina completa
         fes = get_execution_execute_by_status(10)
-        for index, row in fes[fes["supply_forecast_execution_status_id"] == 10].iterrows():
+        for index, row in fes[fes["fee_status_id"] == 10].iterrows():
             algoritmo = row["name"]
             name = algoritmo.split('_ALGO')[0]
             method = row["method"]
-            execution_id = row["id"]
+            execution_id = row["forecast_execution_id"]
             id_proveedor = row["ext_supplier_code"]
             forecast_execution_execute_id = row["forecast_execution_execute_id"]
             supplier_id = row["supplier_id"]
-            supply_forecast_model_id = row["supply_forecast_model_id"]
+            supply_forecast_model_id = row["forecast_model_id"]
 
             print(f"Procesando ejecución: {name} - Método: {method}")
 
             try:
-                df_params = get_execution_parameter(supply_forecast_model_id, execution_id)
+                df_params = get_full_parameters(supply_forecast_model_id, execution_id)
                 param_dict = df_params.set_index('name')['value'].to_dict() if df_params is not None and not df_params.empty else {}
                 try:
                     ventana = int(float(param_dict.get('1_Window', 30)))
@@ -111,9 +112,9 @@ if __name__ == "__main__":
                 f2 = param_dict.get('f2', None)
                 f3 = param_dict.get('f3', None)
 
-                update_execution(execution_id, supply_forecast_execution_status_id=15)
+                update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=15)
                 get_forecast(id_proveedor, name, ventana, method, f1, f2, f3)
-                update_execution(execution_id, supply_forecast_execution_status_id=20)
+                update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=20)
 
                 print("✅ Ejecución completada con éxito.")
             except Exception as e:

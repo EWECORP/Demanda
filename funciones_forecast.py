@@ -1181,6 +1181,26 @@ def generar_grafico_base64(dfv, articulo, sucursal, Forecast, Average, ventas_la
     
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
+def insertar_graficos_forecast(algoritmo, name, id_proveedor):
+        
+    # Recuperar Historial de Ventas
+    df_ventas = pd.read_csv(f'{folder}/{name}_Ventas.csv')
+    df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
+    df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
+    df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+
+    # Recuperando Forecast Calculado
+    df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
+    df_forecast.fillna(0)   # Por si se filtró algún missing value
+    print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {name}")
+    
+    # Agregar la nueva columna de gráficos en df_forecast Iterando sobre todo el DATAFRAME
+    df_forecast["GRAFICO"] = df_forecast.apply(
+        lambda row: generar_grafico_base64(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None,
+        axis=1
+    )
+    
+    return df_forecast
 
 
 # -----------------------------------------------------------
@@ -1298,7 +1318,7 @@ def get_execution_execute_by_status(status):
             m.method,
             fee.ext_supplier_code, 
             fee.last_execution,
-            fee.supply_forecast_execution_status_id as status_id,
+            fee.supply_forecast_execution_status_id as fee_status_id,
             fee.timestamp,
             e.supply_forecast_model_id as forecast_model_id,
             fee.supply_forecast_execution_id as forecast_execution_id, 
@@ -1312,7 +1332,8 @@ def get_execution_execute_by_status(status):
             LEFT JOIN public.spl_supply_forecast_model as m
                 ON e.supply_forecast_model_id= m.id
 
-        WHERE fee.supply_forecast_execution_status_id = {status};
+        WHERE fee.supply_forecast_execution_status_id = {status}
+            AND fee.last_execution = true;
         """
         # Ejecutar la consulta SQL
         fexsts = pd.read_sql(query, conn)
@@ -1323,7 +1344,7 @@ def get_execution_execute_by_status(status):
     finally:
         Close_Connection(conn)       
 
-def get_execution_parameter(supply_forecast_model_id, execution_id):
+def get_full_parameters(supply_forecast_model_id, execution_id): # Parametros del Modelo(default_value) y de la Ejecución 
     conn = Open_Postgres_retry()
     if conn is None:
         return None
@@ -1619,31 +1640,6 @@ def delete_execution_execute(exec_id):
         print(f"Error en delete_execution_execute: {e}")
         conn.rollback()
         return False
-    finally:
-        Close_Connection(conn)
-        
-def new_last_execution_execute(exec_id):
-    conn = Open_Conn_Postgres()
-    if conn is None:
-        return False
-
-    try:
-        cur = conn.cursor()
-        query = """
-            UPDATE public.spl_supply_forecast_execution_execute
-            SET last_execution = false
-            WHERE id = %s
-        """
-        cur.execute(query, (exec_id,))
-        conn.commit()
-        cur.close()
-        return True
-
-    except Exception as e:
-        print(f"Error en delete_execution_execute (soft delete): {e}")
-        conn.rollback()
-        return False
-
     finally:
         Close_Connection(conn)
 

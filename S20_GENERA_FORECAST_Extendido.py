@@ -13,8 +13,9 @@ Fecha de creación: [2025-03-22]
 from funciones_forecast import (
     Open_Conn_Postgres,
     Close_Connection,
-    get_execution_by_status,
-    update_execution
+    get_execution_execute_by_status,
+    update_execution,
+    update_execution_execute
 )
 
 import pandas as pd # uso localmente la lectura de archivos.
@@ -77,12 +78,17 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     # SUBIR INFORMACIÓN DE ARTICULOS y ESTIDISTICA REPOSICIÓN
     # Seleccionar las columnas requeridas en un nuevo dataframe  FALTA ,I_COSTO_ESTADISTICO,I_PRECIO_VTA
     columnas_seleccionadas = [
-        'C_PROVEEDOR_PRIMARIO', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA',
-        'I_COSTO_ESTADISTICO', 'Q_FACTOR_VENTA_ESP', 'Q_FACTOR_VTA_SUCU',
-        'F_ULTIMA_VTA', 'Q_VENTA_30_DIAS', 'Q_VENTA_15_DIAS', 'Q_VENTA_DOMINGO', 'Q_TRANSF_PEND',
-        'Q_DIAS_CON_STOCK', 'Q_REPONER', 'Q_REPONER_INCLUIDO_SOBRE_STOCK', 'Q_VENTA_DIARIA_NORMAL',
-        'Q_DIAS_STOCK', 'Q_DIAS_SOBRE_STOCK', 'Q_DIAS_ENTREGA_PROVEEDOR'
+        'C_PROVEEDOR_PRIMARIO', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO', 'Q_FACTOR_VTA_SUCU', 
+        #'Q_BULTOS_PENDIENTE_OC', 'Q_PESO_PENDIENTE_OC', 'Q_UNID_PESO_PEND_RECEP_TRANSF', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 
+        #'M_FOLDER','C_CLASIFICACION_COMPRA', 'M_HABILITADO_SUCU',  'M_BAJA', 'Q_VENTA_ACUM_30',
+        'F_ULTIMA_VTA', 'Q_VTA_ULTIMOS_15DIAS', 'Q_VTA_ULTIMOS_30DIAS', 'Q_TRANSF_PEND', 'Q_TRANSF_EN_PREP', 
+        'C_FAMILIA', 'C_RUBRO',  'Q_DIAS_CON_STOCK', 'M_OFERTA_SUCU',
+        'Q_REPONER', 'Q_REPONER_INCLUIDO_SOBRE_STOCK', 'Q_VENTA_DIARIA_NORMAL', 'Q_DIAS_STOCK', 'Q_DIAS_SOBRE_STOCK', 
+        'Q_DIAS_ENTREGA_PROVEEDOR'
     ]
+    
+    # ['Q_BULTOS_PENDIENTE_OC', 'Q_PESO_PENDIENTE_OC', 'Q_UNID_PESO_PEND_RECEP_TRANSF', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO',
+    # 'M_FOLDER', 'C_CLASIFICACION_COMPRA', 'Q_VENTA_ACUM_30']
 
     # Filtrar el dataframe con las columnas seleccionadas
     df_nuevo = articulos[columnas_seleccionadas].copy()
@@ -101,31 +107,32 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
 
 # Punto de entrada
 if __name__ == "__main__":
-    fes = get_execution_by_status(20)
+    fes = get_execution_execute_by_status(20)
 
-# Filtrar registros con supply_forecast_execution_status_id = 20  #FORECAST OK
-for index, row in fes[fes["supply_forecast_execution_status_id"] == 20].iterrows():
-    algoritmo = row["name"]
-    name = algoritmo.split('_ALGO')[0]
-    execution_id = row["id"]
-    id_proveedor = row["ext_supplier_code"]
-    print("Algoritmo: " + algoritmo + "  - Name: " + name + " exce_id:" + str(execution_id) + " id: Proveedor "+id_proveedor)
-    
-    try:
-        # Llamar a la función que genera los gráficos y datos extendidos
-        df_extendido = extender_datos_forecast(algoritmo, name, id_proveedor)
+    # Filtrar registros con supply_forecast_execution_status_id = 20  #FORECAST OK
+    for index, row in fes[fes["fee_status_id"] == 20].iterrows():
+        algoritmo = row["name"]
+        name = algoritmo.split('_ALGO')[0]
+        execution_id = row["forecast_execution_id"]
+        id_proveedor = row["ext_supplier_code"]
+        forecast_execution_execute_id = row["forecast_execution_execute_id"]
+        print("Algoritmo: " + algoritmo + "  - Name: " + name + " exce_id:" + str(execution_id) + " id: Proveedor "+id_proveedor)
+        
+        try:
+            # Llamar a la función que genera los gráficos y datos extendidos
+            df_extendido = extender_datos_forecast(algoritmo, name, id_proveedor)
 
-        # Guardar el archivo CSV
-        file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
-        df_extendido.to_csv(file_path, index=False)
-        print(f"Archivo guardado: {file_path}")
+            # Guardar el archivo CSV
+            file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
+            df_extendido.to_csv(file_path, index=False)
+            print(f"Archivo guardado: {file_path}")
 
-        # Actualizar el status_id a 40 en el DataFrame original
-        fes.at[index, "supply_forecast_execution_status_id"] = 30
-        # ✅ Actualizar directamente en la base de datos el estado a 30
-        update_execution(execution_id, supply_forecast_execution_status_id=30)
-        print(f"Estado actualizado a 30 para {execution_id}")
+            # Actualizar el status_id a 40 en el DataFrame original
+            fes.at[index, "supply_forecast_execution_status_id"] = 30
+            # ✅ Actualizar directamente en la base de datos el estado a 30
+            update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=30)
+            print(f"Estado actualizado a 30 para {execution_id}")
 
-    except Exception as e:
-        print(f"Error procesando {name}: {e}")
+        except Exception as e:
+            print(f"Error procesando {name}: {e}")
 

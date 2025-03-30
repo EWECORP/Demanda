@@ -25,7 +25,7 @@ from funciones_forecast import (
     actualizar_site_ids,
     get_precios,
     get_execution_execute_by_status,
-    update_execution,
+    update_execution_execute,
     create_execution_execute_result,
     generar_mini_grafico,
     generar_grafico_base64
@@ -37,11 +37,15 @@ from dotenv import dotenv_values
 secrets = dotenv_values(".env")
 folder = secrets["FOLDER_DATOS"]
 
+import numpy as np
+
 # También podés importar funciones adicionales si tu módulo las necesita
 
 import time
 from datetime import datetime
 import os
+from random import randint
+import shutil
 
 def publish_execution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id):
     print(f"🚀 Comenzando publicación a CONNEXA | Total registros: {len(df_forecast_ext)}")
@@ -171,10 +175,10 @@ if __name__ == "__main__":
     # Leer Dataframe de FORECAST EXECUTION LISTOS PARA IMPORTAR A CONNEXA (DE 40 A 50)
     fes = get_execution_execute_by_status(40)
     
-    for index, row in fes[fes["supply_forecast_execution_status_id"] == 40].iterrows():
+    for index, row in fes[fes["fee_status_id"] == 40].iterrows():
         algoritmo = row["name"]
         name = algoritmo.split('_ALGO')[0]
-        execution_id = row["id"]
+        execution_id = row["forecast_execution_id"]
         id_proveedor = row["ext_supplier_code"]
         forecast_execution_execute_id = row["forecast_execution_execute_id"]
         supplier_id = row["supplier_id"]
@@ -235,18 +239,42 @@ if __name__ == "__main__":
             total_venta = float(round(df_forecast_ext['Forecast_VENTA'].sum() / 1000, 2))
             total_costo = float(round(df_forecast_ext['Forecast_COSTO'].sum() / 1000, 2))
             total_margen = float(round(df_forecast_ext['MARGEN'].sum() / 1000, 2))
+            total_productos = df_forecast_ext['Codigo_Articulo'].nunique()
+            total_unidades = float(round(df_forecast_ext['Forecast'].sum() , 0))
 
             # Mini gráfico
             mini_grafico = generar_mini_grafico(folder, name)
 
-            # Actualizar en base de datos
-            update_execution(
-                execution_id,
+            # SIMULAR VALORES
+            days = randint(0,75) # Simulación de stock_days entre 0 y 75
+                
+            # Definición de condiciones
+            # Condiciones
+            condiciones = [
+                days > 30,
+                (days > 10) & (days <= 30),
+                days <= 10
+            ]
+
+            # Valores (colores) asociados a las condiciones
+            colores = ['green', 'yellow', 'red']
+
+            # Agregar un valor predeterminado (debe ser del mismo tipo: str)
+            semaforo = np.select(condiciones, colores, default='unknown')            
+            
+            update_execution_execute(
+                forecast_execution_execute_id,
                 supply_forecast_execution_status_id=45,
                 monthly_sales_in_millions=total_venta,
                 monthly_purchases_in_millions=total_costo,
                 monthly_net_margin_in_millions=total_margen,
-                graphic=mini_grafico
+                graphic=mini_grafico,
+                total_products=total_productos,
+                total_units=total_unidades,
+                otif = randint(70, 100),  # Simulación de OTIF entre 70 y 100
+                sotck_days = days, # Simulación de stock_days entre 10 y 76              
+                sotck_days_colors = semaforo, # Simulación de semaforo
+                maximum_backorder_days = randint(0,45) # Simulación de oc_delay entre 0 y 45
             )
             
             # Publicar en tabla de resultados
@@ -254,7 +282,7 @@ if __name__ == "__main__":
             print(f"-> Detalle Forecast Publicado CONNEXA: {id_proveedor}, Label: {name}")
                         
             # ✅ Actualizar Estado intermedio de Procesamiento....
-            update_execution(execution_id, supply_forecast_execution_status_id=50)
+            update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=50)
             print(f"✅ Estado actualizado a 50 para {execution_id}")
             
             # ✅ Morver Archivo a carpeta de Procesado ....
