@@ -106,12 +106,15 @@ if __name__ == "__main__":
                 param_dict = df_params.set_index('name')['value'].to_dict() if df_params is not None and not df_params.empty else {}
                 try:
                     ventana = int(float(param_dict.get('1_Window', 30)))
+                    f1 = float(param_dict.get('2_Factor_Actual', None))
+                    f2 = float(param_dict.get('3_Factor_Previo', None))
+                    f3 = float(param_dict.get('4_Factor_Año_Anterior', None))
                 except (ValueError, TypeError):
                     ventana = 30
-                f1 = param_dict.get('f1', None)
-                f2 = param_dict.get('f2', None)
-                f3 = param_dict.get('f3', None)
-
+                    f1 = param_dict.get('f1', None)
+                    f2 = param_dict.get('f2', None)
+                    f3 = param_dict.get('f3', None)
+                
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=15)
                 get_forecast(id_proveedor, name, ventana, method, f1, f2, f3)
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=20)

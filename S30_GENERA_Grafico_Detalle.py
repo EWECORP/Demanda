@@ -129,7 +129,7 @@ if __name__ == "__main__":
             df_merged = insertar_graficos_forecast(algoritmo, name, id_proveedor)
 
             # Guardar el CSV con datos extendidos y gráficos
-            file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
+            file_path = f"{folder}/{algoritmo}_Pronostico_Extendido_FINAL.csv"
             df_merged.to_csv(file_path, index=False)
             print(f"📁 Archivo guardado correctamente: {file_path}")
 

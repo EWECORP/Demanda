@@ -15,7 +15,9 @@ from funciones_forecast import (
     get_precios,
     get_execution_execute_by_status,
     update_execution_execute,
-    generar_mini_grafico
+    generar_mini_grafico,
+    Open_Connection,
+    Close_Connection
 )
 
 import pandas as pd # uso localmente la lectura de archivos.
@@ -43,6 +45,124 @@ def mover_archivos_procesados(algoritmo, folder):
             destino_final = os.path.join(destino, archivo)
             shutil.move(origen, destino_final)
             print(f"📁 Archivo movido: {archivo} → {destino_final}")
+            
+def obtener_datos_stock(id_proveedor, etiqueta):
+    secrets = dotenv_values(".env")   # Connection String from .env
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:         
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión
+        conn = Open_Connection()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
+        query = f"""              
+        SELECT A.[C_PROVEEDOR_PRIMARIO] as Codigo_Proveedor
+            ,S.[C_ARTICULO] as Codigo_Articulo
+            ,S.[C_SUCU_EMPR] as Codigo_Sucursal
+            ,S.[I_PRECIO_VTA] as Precio_Venta
+            ,S.[I_COSTO_ESTADISTICO] as Precio_Costo
+            ,S.[Q_FACTOR_VTA_SUCU] as Factor_Venta
+            ,ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO AS Stock_Unidades-- Stock Cierre Dia Anterior
+            ,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) * S.[Q_FACTOR_VTA_SUCU] AS Venta_Unidades_30_Dias -- OJO convertida desde BULTOS DIARCO
+                    
+            ,(ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO)* S.[I_COSTO_ESTADISTICO] AS Stock_Valorizado-- Stock Cierre Dia Anterior
+            ,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) * S.[Q_FACTOR_VTA_SUCU] * S.[I_COSTO_ESTADISTICO] AS Venta_Valorizada
+
+            ,ROUND(((ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO)* S.[I_COSTO_ESTADISTICO]) / 	
+                ((R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]+0.0001) * S.[Q_FACTOR_VTA_SUCU] * S.[I_COSTO_ESTADISTICO] ),0) * 30
+                AS Dias_Stock
+                    
+            ,S.[F_ULTIMA_VTA]
+            ,S.[Q_VTA_ULTIMOS_15DIAS] * S.[Q_FACTOR_VTA_SUCU] AS VENTA_UNIDADES_1Q -- OJO esto está en BULTOS DIARCO
+            ,S.[Q_VTA_ULTIMOS_30DIAS] * S.[Q_FACTOR_VTA_SUCU] AS VENTA_UNIDADES_2Q -- OJO esto está en BULTOS DIARCO
+                
+        FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
+        INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+            ON A.[C_ARTICULO] = S.[C_ARTICULO]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] ST
+            ON ST.C_ARTICULO = S.[C_ARTICULO] 
+            AND ST.C_SUCU_EMPR = S.[C_SUCU_EMPR]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
+            ON R.[C_ARTICULO] = S.[C_ARTICULO]
+            AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+
+        WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
+            AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
+            AND A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} -- Solo del Proveedor
+                        
+        ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
+        """
+        # Ejecutar la consulta SQL
+        df_stock = pd.read_sql(query, conn)
+        file_path = f'{folder}/{etiqueta}_Stock.csv'
+        df_stock['Codigo_Proveedor']= df_stock['Codigo_Proveedor'].astype(int)
+        df_stock['Codigo_Articulo']= df_stock['Codigo_Articulo'].astype(int)
+        df_stock['Codigo_Sucursal']= df_stock['Codigo_Sucursal'].astype(int)
+        df_stock.fillna(0, inplace= True)
+        # df_stock.to_csv(file_path, index=False, encoding='utf-8')        
+        print(f"---> Datos de STOCK guardados: {file_path}")
+        return df_stock
+    except Exception as e:
+        print(f"Error en get_execution: {e}")
+        return None
+    finally:
+        Close_Connection(conn)
+
+
+def obtener_demora_oc(id_proveedor, etiqueta):
+    secrets = dotenv_values(".env")   # Connection String from .env
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:         
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión
+        conn = Open_Connection()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
+        query = f"""              
+        SELECT  [C_OC]
+            ,[U_PREFIJO_OC]
+            ,[U_SUFIJO_OC]      
+            ,[U_DIAS_LIMITE_ENTREGA]
+            , DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]) as FECHA_LIMITE
+            , DATEDIFF (DAY, DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]), GETDATE()) as Demora
+            ,[C_PROVEEDOR] as Codigo_Proveedor
+            ,[C_SUCU_COMPRA] as Codigo_Sucursal
+            ,[C_SUCU_DESTINO]
+            ,[C_SUCU_DESTINO_ALT]
+            ,[C_SITUAC]
+            ,[F_SITUAC]
+            ,[F_ALTA_SIST]
+            ,[F_EMISION]
+            ,[F_ENTREGA]    
+            ,[C_USUARIO_OPERADOR]    
+            
+        FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]  
+        WHERE [C_SITUAC] = 1
+        AND C_PROVEEDOR = {id_proveedor} 
+        AND DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]) < GETDATE();
+        """
+        # Ejecutar la consulta SQL
+        df_demoras = pd.read_sql(query, conn)
+        df_demoras['Codigo_Proveedor']= df_demoras['Codigo_Proveedor'].astype(int)
+        df_demoras['Codigo_Sucursal']= df_demoras['Codigo_Sucursal'].astype(int)
+        df_demoras['Demora']= df_demoras['Demora'].astype(int)
+        df_demoras.fillna(0, inplace= True)         
+        print(f"---> Datos de OC DEMORADAS Recuperados: {etiqueta}")
+        return df_demoras
+    except Exception as e:
+        print(f"Error en get_execution: {e}")
+        return None
+    finally:
+        Close_Connection(conn)
+
 
 # --------------------------------
 # Punto de Entrada del Módulo
@@ -51,9 +171,9 @@ def mover_archivos_procesados(algoritmo, folder):
 if __name__ == "__main__":
 
     # Leer Dataframe de FORECAST EXECUTION  de Estado 50 y Actualizar HEADER
-    fes = get_execution_execute_by_status(50)
+    fes = get_execution_execute_by_status(45)
     
-    for index, row in fes[fes["fee_status_id"] == 50].iterrows():
+    for index, row in fes[fes["fee_status_id"] == 45].iterrows():
         algoritmo = row["name"]
         name = algoritmo.split('_ALGO')[0]
         execution_id = row["forecast_execution_id"]
@@ -113,19 +233,39 @@ if __name__ == "__main__":
             # Mini gráfico
             mini_grafico = generar_mini_grafico(folder, name)
             
-            ############# SIMULAR VALORES
-            days = randint(0,75), # Simulación de stock_days entre 0 y 75
-                
-            # Definición de condiciones
-            condiciones = [
-                days > 30,
-                (days > 10) & (days <= 30),
-                days <= 10
-            ]
-            colores = ['green', 'yellow', 'red']
-            
-            semaforo = np.select(condiciones, colores)
+            # DATOS COMPLEMENTARIOS
+            df_stock = obtener_datos_stock(id_proveedor= id_proveedor, etiqueta= algoritmo )
+            total_stock_valorizado = float(round(df_stock['Stock_Valorizado'].sum() / 1000000, 2))
+            total_venta_valorizada = float(round(df_stock['Venta_Valorizada'].sum() / 1000000, 2))
+            days= int( total_stock_valorizado / total_venta_valorizada * 30 )
+            # Condiciones Dias de STOCK
+            if days > 30:
+                semaforo= 'green'
+            elif 10 < days <= 30:
+                semaforo ='yellow'
+            elif days <= 10:
+                semaforo ='red'
+            else:
+                semaforo = 'white' # Valor predeterminado
 
+            # DEMORA de OC
+            df_demora = obtener_demora_oc(id_proveedor= id_proveedor, etiqueta= algoritmo )
+            if df_demora.empty:  # Verifica si el DataFrame está vacío
+                maximo_atraso_oc = 0
+            else:
+                maximo_atraso_oc = int(round(df_demora['Demora'].max()))
+            
+            # ARTICULOS FALTANTES
+            articulos_faltantes = df_stock[df_stock["Stock_Unidades"] == 0]["Codigo_Articulo"].nunique()
+            if articulos_faltantes > 5:
+                quiebres= 'R'
+            elif 1 < articulos_faltantes <= 5:
+                quiebres ='Y'
+            elif articulos_faltantes <= 1:
+                quiebres ='G'
+            else:
+                quiebres = 'white' # Valor predeterminado
+                                
             # Actualizar en base de datos            
             update_execution_execute(
                 forecast_execution_execute_id,
@@ -137,9 +277,10 @@ if __name__ == "__main__":
                 total_products=total_productos,
                 total_units=total_unidades,
                 otif = randint(70, 100),  # Simulación de OTIF entre 70 y 100
-                stock_days = days,
-                sotck_days_colors = semaforo,
-                maximum_backorder_days = randint(0, 45) # Simulación de oc_delay entre 0 y 45
+                sotck_days = days, # Viene de la Nueva Rutina              
+                sotck_days_colors = semaforo, # Nueva Rutina
+                maximum_backorder_days = maximo_atraso_oc, # Calcula Mäxima Demora
+                contains_breaks = quiebres  # ICONO de FALTANTES
                 
             )
             

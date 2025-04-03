@@ -28,7 +28,9 @@ from funciones_forecast import (
     update_execution_execute,
     create_execution_execute_result,
     generar_mini_grafico,
-    generar_grafico_base64
+    generar_grafico_base64,
+    obtener_demora_oc,
+    obtener_datos_stock
 )
 
 import pandas as pd # uso localmente la lectura de archivos.
@@ -74,7 +76,7 @@ def publish_execution_results(df_forecast_ext, forecast_execution_execute_id, su
                 ext_supplier_code=row['id_proveedor'],
                 forcast=row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
                 graphic=row['GRAFICO'],
-                quantity_stock=row.get('Q_TRANSF_PEND', 0),
+                quantity_stock=row.get('Q_STOCK_UNIDADES', 0) + row.get('Q_STOCK_PESO', 0),
                 sales_last=row['ventas_last'],
                 sales_previous=row['ventas_previous'],
                 sales_same_year=row['ventas_same_year'],
@@ -188,7 +190,7 @@ if __name__ == "__main__":
 
         try:
             # Leer forecast extendido
-            df_forecast_ext = pd.read_csv(f'{folder}/{algoritmo}_Pronostico_Extendido.csv')
+            df_forecast_ext = pd.read_csv(f'{folder}/{algoritmo}_Pronostico_Extendido_FINAL.csv')
             df_forecast_ext['Codigo_Articulo'] = df_forecast_ext['Codigo_Articulo'].astype(int)
             df_forecast_ext['Sucursal'] = df_forecast_ext['Sucursal'].astype(int)
             df_forecast_ext.fillna(0, inplace=True)
@@ -201,9 +203,17 @@ if __name__ == "__main__":
             df_forecast_ext = actualizar_site_ids(df_forecast_ext, conn, name)
             print(f"-> Se actualizaron los site_ids: {id_proveedor}, Label: {name}")
             
+            # Verificar columnas necesarias después del merge
+            columnas_requeridas = ['I_PRECIO_VTA', 'I_COSTO_ESTADISTICO']
+            for col in columnas_requeridas:
+                if col not in df_forecast_ext.columns:
+                    print(f"❌ ERROR: Falta la columna requerida '{col}' en df_forecast_ext para el proveedor {id_proveedor}")
+                    df_forecast_ext.to_csv(f"{folder}/{algoritmo}_ERROR_MERGE.csv", index=False)
+                    raise ValueError(f"Column '{col}' missing in df_forecast_ext. No se puede continuar.")
+            
             # Hacer merge solo si no existen las columnas de precios y costos
             if 'I_PRECIO_VTA' not in df_forecast_ext.columns or 'I_COSTO_ESTADISTICO' not in df_forecast_ext.columns:
-                print(f"❌ ERROR: Falta la columna requerida '{col}' procedemos a actualizar {id_proveedor}")
+                #print(f"❌ ERROR: Falta la columna requerida '{col}' procedemos a actualizar {id_proveedor}")
                 precio = get_precios(id_proveedor)
                 precio['C_ARTICULO'] = precio['C_ARTICULO'].astype(int)
                 precio['C_SUCU_EMPR'] = precio['C_SUCU_EMPR'].astype(int)
@@ -215,15 +225,7 @@ if __name__ == "__main__":
                     how='left'
                 )
             else:
-                print(f"⚠️ El DataFrame ya contiene precios y costos. Merge evitado para {id_proveedor}")
-            
-            # Verificar columnas necesarias después del merge
-            columnas_requeridas = ['I_PRECIO_VTA', 'I_COSTO_ESTADISTICO']
-            for col in columnas_requeridas:
-                if col not in df_forecast_ext.columns:
-                    print(f"❌ ERROR: Falta la columna requerida '{col}' en df_forecast_ext para el proveedor {id_proveedor}")
-                    df_forecast_ext.to_csv(f"{folder}/{algoritmo}_ERROR_MERGE.csv", index=False)
-                    raise ValueError(f"Column '{col}' missing in df_forecast_ext. No se puede continuar.")
+                print(f"⚠️ El DataFrame ya contiene precios y costos. Merge evitado para {id_proveedor}")            
 
             # Cálculo de métricas x Línea en miles
             df_forecast_ext['Forecast_VENTA'] = (df_forecast_ext['Forecast'] * df_forecast_ext['I_PRECIO_VTA'] / 1000).round(2)
@@ -231,7 +233,7 @@ if __name__ == "__main__":
             df_forecast_ext['MARGEN'] = (df_forecast_ext['Forecast_VENTA'] - df_forecast_ext['Forecast_COSTO'])
 
             # Guardar CSV actualizado
-            file_path = f"{folder}/{algoritmo}_Pronostico_Extendido.csv"
+            file_path = f"{folder}/{algoritmo}_Pronostico_Extendido_FINAL.csv"
             df_forecast_ext.to_csv(file_path, index=False)
             print(f"Archivo guardado: {file_path}")
             
@@ -245,23 +247,39 @@ if __name__ == "__main__":
             # Mini gráfico
             mini_grafico = generar_mini_grafico(folder, name)
 
-            # SIMULAR VALORES
-            days = randint(0,75) # Simulación de stock_days entre 0 y 75
-                
-            # Definición de condiciones
-            # Condiciones
-            condiciones = [
-                days > 30,
-                (days > 10) & (days <= 30),
-                days <= 10
-            ]
+            # DATOS COMPLEMENTARIOS
+            df_stock = obtener_datos_stock(id_proveedor= id_proveedor, etiqueta= algoritmo )
+            total_stock_valorizado = float(round(df_stock['Stock_Valorizado'].sum() / 1000000, 2))
+            total_venta_valorizada = float(round(df_stock['Venta_Valorizada'].sum() / 1000000, 2))
+            days= int( total_stock_valorizado / total_venta_valorizada * 30 )
+            # Condiciones Dias de STOCK
+            if days > 30:
+                semaforo= 'green'
+            elif 10 < days <= 30:
+                semaforo ='yellow'
+            elif days <= 10:
+                semaforo ='red'
+            else:
+                semaforo = 'white' # Valor predeterminado
 
-            # Valores (colores) asociados a las condiciones
-            colores = ['green', 'yellow', 'red']
-
-            # Agregar un valor predeterminado (debe ser del mismo tipo: str)
-            semaforo = np.select(condiciones, colores, default='unknown')            
+            # DEMORA de OC
+            df_demora = obtener_demora_oc(id_proveedor= id_proveedor, etiqueta= algoritmo )
+            if df_demora.empty:  # Verifica si el DataFrame está vacío
+                maximo_atraso_oc = 0
+            else:
+                maximo_atraso_oc = int(round(df_demora['Demora'].max()))
             
+            # ARTICULOS FALTANTES
+            articulos_faltantes = df_stock[df_stock["Stock_Unidades"] == 0]["Codigo_Articulo"].nunique()
+            if articulos_faltantes > 5:
+                quiebres= 'R'
+            elif 1 < articulos_faltantes <= 5:
+                quiebres ='Y'
+            elif articulos_faltantes <= 1:
+                quiebres ='G'
+            else:
+                quiebres = 'white' # Valor predeterminado
+                                    
             update_execution_execute(
                 forecast_execution_execute_id,
                 supply_forecast_execution_status_id=45,
@@ -272,9 +290,10 @@ if __name__ == "__main__":
                 total_products=total_productos,
                 total_units=total_unidades,
                 otif = randint(70, 100),  # Simulación de OTIF entre 70 y 100
-                sotck_days = days, # Simulación de stock_days entre 10 y 76              
-                sotck_days_colors = semaforo, # Simulación de semaforo
-                maximum_backorder_days = randint(0,45) # Simulación de oc_delay entre 0 y 45
+                sotck_days = days, # Viene de la Nueva Rutina              
+                sotck_days_colors = semaforo, # Nueva Rutina
+                maximum_backorder_days = maximo_atraso_oc, # Calcula Mäxima Demora
+                contains_breaks = quiebres  # ICONO de FALTANTES
             )
             
             # Publicar en tabla de resultados

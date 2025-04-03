@@ -27,9 +27,12 @@ import warnings
 import traceback
 from datetime import datetime, timedelta
 
+# Acceso a Datos
 from dotenv import dotenv_values
 import psycopg2 as pg2
 import pyodbc
+import sqlalchemy
+from sqlalchemy import text
 
 from statsmodels.tsa.holtwinters import ExponentialSmoothing, Holt
 import ace_tools_open as tools
@@ -106,7 +109,27 @@ def Open_Postgres_retry(max_retries=5, wait_seconds=5):
             print(f"Error en la conexión, intento {i+1}/{max_retries}: {e}")
             time.sleep(wait_seconds)
     return None  # Retorna None si todos los intentos fallan
-    
+
+def Open_Connexa_Alquemy():
+    secrets = dotenv_values(".env")   # Cargar credenciales desde .env
+    DB_TYPE = "postgresql"
+    DB_USER = secrets['USUARIO4']
+    DB_PASS = secrets['CONTRASENA4']  # ⚠️ Reemplazar por la contraseña real o usar variables de entorno
+    DB_HOST = secrets['SERVIDOR4']
+    DB_PORT = secrets['PUERTO4']
+    DB_NAME = secrets['BASE4']
+
+    # Crear engine de conexión
+    try:
+        engine = sqlalchemy.create_engine(
+        f"{DB_TYPE}://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        )
+        conn = pg2.connect(engine)        
+        return conn
+    except Exception as e:
+        print(f'Error en la conexión: {e}')
+        return None   
+
 def Close_Connection(conn): 
     if conn is not None:
         conn.close()
@@ -270,6 +293,124 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # Cerrar la conexión después de la iteración
         Close_Connection(conn)
         return data, articulos
+    
+def obtener_datos_stock(id_proveedor, etiqueta):
+    secrets = dotenv_values(".env")   # Connection String from .env
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:         
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión
+        conn = Open_Connection()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
+        query = f"""              
+        SELECT A.[C_PROVEEDOR_PRIMARIO] as Codigo_Proveedor
+            ,S.[C_ARTICULO] as Codigo_Articulo
+            ,S.[C_SUCU_EMPR] as Codigo_Sucursal
+            ,S.[I_PRECIO_VTA] as Precio_Venta
+            ,S.[I_COSTO_ESTADISTICO] as Precio_Costo
+            ,S.[Q_FACTOR_VTA_SUCU] as Factor_Venta
+            ,ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO AS Stock_Unidades-- Stock Cierre Dia Anterior
+            ,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) * S.[Q_FACTOR_VTA_SUCU] AS Venta_Unidades_30_Dias -- OJO convertida desde BULTOS DIARCO
+                    
+            ,(ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO)* S.[I_COSTO_ESTADISTICO] AS Stock_Valorizado-- Stock Cierre Dia Anterior
+            ,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) * S.[Q_FACTOR_VTA_SUCU] * S.[I_COSTO_ESTADISTICO] AS Venta_Valorizada
+
+            ,ROUND(((ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO)* S.[I_COSTO_ESTADISTICO]) / 	
+                ((R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]+0.0001) * S.[Q_FACTOR_VTA_SUCU] * S.[I_COSTO_ESTADISTICO] ),0) * 30
+                AS Dias_Stock
+                    
+            ,S.[F_ULTIMA_VTA]
+            ,S.[Q_VTA_ULTIMOS_15DIAS] * S.[Q_FACTOR_VTA_SUCU] AS VENTA_UNIDADES_1Q -- OJO esto está en BULTOS DIARCO
+            ,S.[Q_VTA_ULTIMOS_30DIAS] * S.[Q_FACTOR_VTA_SUCU] AS VENTA_UNIDADES_2Q -- OJO esto está en BULTOS DIARCO
+                
+        FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
+        INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+            ON A.[C_ARTICULO] = S.[C_ARTICULO]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] ST
+            ON ST.C_ARTICULO = S.[C_ARTICULO] 
+            AND ST.C_SUCU_EMPR = S.[C_SUCU_EMPR]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
+            ON R.[C_ARTICULO] = S.[C_ARTICULO]
+            AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+
+        WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
+            AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
+            AND A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} -- Solo del Proveedor
+                        
+        ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
+        """
+        # Ejecutar la consulta SQL
+        df_stock = pd.read_sql(query, conn)
+        file_path = f'{folder}/{etiqueta}_Stock.csv'
+        df_stock['Codigo_Proveedor']= df_stock['Codigo_Proveedor'].astype(int)
+        df_stock['Codigo_Articulo']= df_stock['Codigo_Articulo'].astype(int)
+        df_stock['Codigo_Sucursal']= df_stock['Codigo_Sucursal'].astype(int)
+        df_stock.fillna(0, inplace= True)
+        # df_stock.to_csv(file_path, index=False, encoding='utf-8')        
+        print(f"---> Datos de STOCK guardados: {file_path}")
+        return df_stock
+    except Exception as e:
+        print(f"Error en get_execution: {e}")
+        return None
+    finally:
+        Close_Connection(conn)
+
+
+def obtener_demora_oc(id_proveedor, etiqueta):
+    secrets = dotenv_values(".env")   # Connection String from .env
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:         
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión
+        conn = Open_Connection()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
+        query = f"""              
+        SELECT  [C_OC]
+            ,[U_PREFIJO_OC]
+            ,[U_SUFIJO_OC]      
+            ,[U_DIAS_LIMITE_ENTREGA]
+            , DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]) as FECHA_LIMITE
+            , DATEDIFF (DAY, DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]), GETDATE()) as Demora
+            ,[C_PROVEEDOR] as Codigo_Proveedor
+            ,[C_SUCU_COMPRA] as Codigo_Sucursal
+            ,[C_SUCU_DESTINO]
+            ,[C_SUCU_DESTINO_ALT]
+            ,[C_SITUAC]
+            ,[F_SITUAC]
+            ,[F_ALTA_SIST]
+            ,[F_EMISION]
+            ,[F_ENTREGA]    
+            ,[C_USUARIO_OPERADOR]    
+            
+        FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]  
+        WHERE [C_SITUAC] = 1
+        AND C_PROVEEDOR = {id_proveedor} 
+        AND DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]) < GETDATE();
+        """
+        # Ejecutar la consulta SQL
+        df_demoras = pd.read_sql(query, conn)
+        df_demoras['Codigo_Proveedor']= df_demoras['Codigo_Proveedor'].astype(int)
+        df_demoras['Codigo_Sucursal']= df_demoras['Codigo_Sucursal'].astype(int)
+        df_demoras['Demora']= df_demoras['Demora'].astype(int)
+        df_demoras.fillna(0, inplace= True)         
+        print(f"---> Datos de OC DEMORADAS Recuperados: {etiqueta}")
+        return df_demoras
+    except Exception as e:
+        print(f"Error en get_execution: {e}")
+        return None
+    finally:
+        Close_Connection(conn)
+
 
 def Exportar_Pronostico(df_forecast, proveedor, etiqueta, algoritmo):
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
@@ -1122,7 +1263,7 @@ def generar_grafico_base64(dfv, articulo, sucursal, Forecast, Average, ventas_la
     df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
 
     # Histograma de ventas semanales
-    ax[0, 1].bar(df_semanal["Semana_Num"], df_semanal["Unidades"], color=[colors[1],colors[2], colors[3], colors[4], colors[5]], alpha=0.7)
+    ax[0, 1].bar(df_semanal["Semana_Num"], df_semanal["Unidades"], color=[colors[1]], alpha=0.7)
     ax[0, 1].set_xlabel("Semana del Año")
     ax[0, 1].set_ylabel("Unidades Vendidas")
     ax[0, 1].set_title("Histograma de Ventas Semanales")
