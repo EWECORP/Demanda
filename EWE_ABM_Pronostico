@@ -68,6 +68,24 @@ def obtener_parametros(model_id):
         messagebox.showerror("Error", f"Error al obtener parámetros:\n{e}")
         return []
 
+def obtener_supplier_id(ext_code):
+    try:
+        with psycopg2.connect(**DB_CONFIG) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id
+                    FROM public.fnd_supplier
+                    WHERE ext_code = %s
+                """, (ext_code,))
+                result = cur.fetchone()
+                if result:
+                    return result[0]  # Retorna el UUID
+                else:
+                    return None  # Si no encuentra resultados
+    except Exception as e:
+        messagebox.showerror("Error", f"Error al obtener supplier_id:\n{e}")
+        return None
+
 # === EVENTOS Y FUNCIONALIDAD ===
 def filtrar_proveedores(*args):
     texto = filtro_var.get().lower()
@@ -146,19 +164,22 @@ def ejecutar_configuracion():
     exec_id = str(uuid.uuid4())
     schedule_id = str(uuid.uuid4())
     execution_id = str(uuid.uuid4())
+    supplier_id = obtener_supplier_id(ext_code_valor.get())
+    print(f"Supplier ID obtenido: {supplier_id}")
+
+    if not supplier_id:
+        messagebox.showerror("Error", "No se pudo obtener el ID del proveedor.")
+        return
 
     try:
         with psycopg2.connect(**DB_CONFIG) as conn:
-            with conn.cursor() as cur:
-                
+            with conn.cursor() as cur:                
                 # Armar campos requeridos
                 ext_code = ext_code_valor.get()
                 proveedor = name_valor.get()
                 label = proveedor.split(" ")[0]
                 method = method_valor.get()
-                model_name = model_name_valor.get()
-                supplier_id = ext_code_valor.get()
-
+                model_name = model_name_valor.get()                
                 execution_name = f"{ext_code}_{label}_{method}"
                 execution_description = model_name
 
@@ -166,14 +187,15 @@ def ejecutar_configuracion():
                 cur.execute("""
                     INSERT INTO public.spl_supply_forecast_execution (
                         id, "timestamp", supply_forecast_model_id, supplier_id, name, description, ext_supplier_code
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
-                    exec_id, now,
+                    exec_id, 
+                    now,
                     model_id_valor.get(),
-                    id_valor.get(),
+                    supplier_id,                
                     execution_name,
                     execution_description,
-                    supplier_id
+                    ext_code_valor.get()
                 ))
                 
                 # INSERT INTO schedule
@@ -187,14 +209,16 @@ def ejecutar_configuracion():
                 cur.execute("""
                     INSERT INTO public.spl_supply_forecast_execution_execute(
                         id, end_execution, last_execution, start_execution, "timestamp", 
-                        supply_forecast_execution_id, supply_forecast_execution_schedule_id, ext_supplier_code, supply_forecast_execution_status_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 10)
+                        supply_forecast_execution_id, supply_forecast_execution_schedule_id, ext_supplier_code, supply_forecast_execution_status_id, supplier_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     execution_id,
                     now, True, now, now,
                     exec_id,
                     schedule_id,
-                    ext_code_valor.get()
+                    ext_code_valor.get(),
+                    10,
+                    supplier_id
                 ))
 
                 # INSERT INTO parameters

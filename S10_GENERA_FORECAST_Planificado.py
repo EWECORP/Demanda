@@ -102,21 +102,29 @@ if __name__ == "__main__":
             print(f"Procesando ejecución: {name} - Método: {method}")
 
             try:
-                df_params = get_full_parameters(supply_forecast_model_id, execution_id)
-                param_dict = df_params.set_index('name')['value'].to_dict() if df_params is not None and not df_params.empty else {}
+                df_params = get_full_parameters(supply_forecast_model_id, execution_id) 
+                ventana = 30
+                f1 = f2 = f3 = None
+
                 try:
-                    ventana = int(float(param_dict.get('1_Window', 30)))
-                    f1 = float(param_dict.get('2_Factor_Actual', None))
-                    f2 = float(param_dict.get('3_Factor_Previo', None))
-                    f3 = float(param_dict.get('4_Factor_Año_Anterior', None))
-                except (ValueError, TypeError):
+                    if df_params is not None and not df_params.empty:
+                        if len(df_params) >= 1:
+                            ventana = int(float(df_params.iloc[0]['value']))
+                        if len(df_params) >= 2:
+                            f1 = df_params.iloc[1]['value']
+                        if len(df_params) >= 3:
+                            f2 = df_params.iloc[2]['value']
+                        if len(df_params) >= 4:
+                            f3 = df_params.iloc[3]['value']
+                except Exception as e:
+                    print(f"⚠️ Error interpretando parámetros: {e}")
                     ventana = 30
-                    f1 = param_dict.get('f1', None)
-                    f2 = param_dict.get('f2', None)
-                    f3 = param_dict.get('f3', None)
+                    f1 = f2 = f3 = None
                 
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=15)
+                ## RUTINA PRINCIPAL
                 get_forecast(id_proveedor, name, ventana, method, f1, f2, f3)
+                
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=20)
 
                 print("✅ Ejecución completada con éxito.")
