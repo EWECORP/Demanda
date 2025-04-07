@@ -40,7 +40,7 @@ from plotly.subplots import make_subplots
 from io import BytesIO
 import base64
 from multiprocessing import Pool, cpu_count
-
+import json
 from statsmodels.tsa.holtwinters import ExponentialSmoothing, Holt
 import ace_tools_open as tools
 
@@ -1474,6 +1474,195 @@ def guardar_grafico_base64(base64_str, path_archivo):
     with open(path_archivo, "wb") as f:
         f.write(base64.b64decode(base64_str))
 
+def preparar_datos_para_grafico(dfv, articulo, sucursal):
+    fecha_maxima = dfv["Fecha"].max()
+    df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
+    df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
+
+    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
+    df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
+
+    df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
+    df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
+    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
+
+    # Fechas de comparación
+    fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
+    fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
+    fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
+    fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
+
+    ventas_ultimos_30 = df_filtrado[(df_filtrado["Fecha"] > fecha_inicio_ultimos30)]["Unidades"].sum()
+    ventas_previos_30 = df_filtrado[
+        (df_filtrado["Fecha"] > fecha_inicio_previos30) & (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
+    ]["Unidades"].sum()
+
+    df_filtrado_anio_anterior = df_filtrado.copy()
+    df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
+    ventas_mismo_periodo_anio_anterior = df_filtrado_anio_anterior[
+        (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
+        (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
+    ]["Unidades"].sum()
+
+    return {
+        "articulo": articulo,
+        "sucursal": sucursal,
+        "fechas": df_filtrado["Fecha"].dt.strftime("%Y-%m-%d").tolist(),
+        "unidades": df_filtrado["Unidades"].tolist(),
+        "media_movil": df_filtrado["Media_Movil"].tolist(),
+        "semana_num": df_semanal["Semana_Num"].tolist(),
+        "ventas_semanales": df_semanal["Unidades"].tolist(),
+        "forecast": None,  # completar al momento de la ejecución si no se conoce antes
+        "ventas_last": ventas_ultimos_30,
+        "ventas_previous": ventas_previos_30,
+        "ventas_same_year": ventas_mismo_periodo_anio_anterior,
+        "average": round(df_filtrado["Unidades"].mean(), 2)
+    }
+    
+    # Si se va a archivo
+        # with open(path_salida, "w", encoding="utf-8") as f:
+        # json.dump(datos, f, indent=4)
+
+def preparar_y_guardar_datos_para_grafico(dfv, articulo, sucursal, path_salida):
+    fecha_maxima = dfv["Fecha"].max()
+    df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
+    df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
+
+    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
+    df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
+
+    df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
+    df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
+    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
+
+    # Fechas de comparación
+    fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
+    fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
+    fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
+    fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
+
+    ventas_ultimos_30 = df_filtrado[(df_filtrado["Fecha"] > fecha_inicio_ultimos30)]["Unidades"].sum()
+    ventas_previos_30 = df_filtrado[
+        (df_filtrado["Fecha"] > fecha_inicio_previos30) & (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
+    ]["Unidades"].sum()
+
+    df_filtrado_anio_anterior = df_filtrado.copy()
+    df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
+    ventas_mismo_periodo_anio_anterior = df_filtrado_anio_anterior[
+        (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
+        (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
+    ]["Unidades"].sum()
+
+    datos = {
+        "articulo": articulo,
+        "sucursal": sucursal,
+        "fechas": df_filtrado["Fecha"].dt.strftime("%Y-%m-%d").tolist(),
+        "unidades": df_filtrado["Unidades"].tolist(),
+        "media_movil": df_filtrado["Media_Movil"].fillna(0).tolist(),
+        "semana_num": df_semanal["Semana_Num"].tolist(),
+        "ventas_semanales": df_semanal["Unidades"].tolist(),
+        "ventas_last": ventas_ultimos_30,
+        "ventas_previous": ventas_previos_30,
+        "ventas_same_year": ventas_mismo_periodo_anio_anterior,
+        "average": round(df_filtrado["Unidades"].mean(), 2)
+    }
+
+    with open(path_salida, "w", encoding="utf-8") as f:
+        json.dump(datos, f, indent=4)
+
+def graficar_desde_datos(datos_dict, forecast, ventas_last, ventas_previous, ventas_same_year):
+    fechas = pd.to_datetime(datos_dict["fechas"])
+    unidades = datos_dict["unidades"]
+    media_movil = datos_dict["media_movil"]
+    semana_num = datos_dict["semana_num"]
+    ventas_semanales = datos_dict["ventas_semanales"]
+
+    fig, ax = plt.subplots(figsize=(8, 6), nrows=2, ncols=2)
+    fig.suptitle(f"Demanda Articulo {datos_dict['articulo']} - Sucursal {datos_dict['sucursal']}")
+
+    # Ventas diarias
+    ax[0, 0].plot(fechas, unidades, marker="o", label="Ventas", color="red")
+    ax[0, 0].plot(fechas, media_movil, linestyle="--", label="Media Móvil (7 días)", color="black")
+    ax[0, 0].set_title("Ventas Diarias")
+    ax[0, 0].legend()
+    ax[0, 0].tick_params(axis='x', rotation=45)
+
+    # Histograma de ventas semanales
+    ax[0, 1].bar(semana_num, ventas_semanales, color="blue", alpha=0.7)
+    ax[0, 1].set_title("Histograma de Ventas Semanales")
+    ax[0, 1].grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Forecast vs ventas anteriores
+    ax[1, 0].bar(["Forecast", "Actual", "Anterior", "Año Ant."],    
+                [forecast, ventas_last, ventas_previous, ventas_same_year],
+                color=["orange", "green", "blue", "purple"])
+    ax[1, 0].set_title("Forecast vs Ventas Anteriores")
+    ax[1, 0].grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Comparación últimos 30 días
+    ax[1, 1].bar(["Últimos 30", "Anteriores 30", "Año Anterior", "Average"],
+                [ventas_last, ventas_previous, ventas_same_year, datos_dict["average"]],
+                color=["red", "blue", "purple", "gray"])
+    ax[1, 1].set_title("Comparación de Ventas en 3 Períodos")
+    ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+    
+def graficar_desde_json(path_json, forecast, ventas_last, ventas_previous, ventas_same_year):
+    with open(path_json, "r", encoding="utf-8") as f:
+        datos = json.load(f)
+
+    fechas = pd.to_datetime(datos["fechas"])
+    unidades = datos["unidades"]
+    media_movil = datos["media_movil"]
+    semana_num = datos["semana_num"]
+    ventas_semanales = datos["ventas_semanales"]
+
+    fig, ax = plt.subplots(figsize=(8, 6), nrows=2, ncols=2)
+    fig.suptitle(f"Demanda Artículo {datos['articulo']} - Sucursal {datos['sucursal']}")
+
+    # Ventas diarias
+    ax[0, 0].plot(fechas, unidades, marker="o", label="Ventas", color="red")
+    ax[0, 0].plot(fechas, media_movil, linestyle="--", label="Media Móvil (7 días)", color="black")
+    ax[0, 0].set_title("Ventas Diarias")
+    ax[0, 0].legend()
+    ax[0, 0].tick_params(axis='x', rotation=45)
+
+    # Histograma de ventas semanales
+    ax[0, 1].bar(semana_num, ventas_semanales, color="blue", alpha=0.7)
+    ax[0, 1].set_title("Histograma de Ventas Semanales")
+    ax[0, 1].grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Forecast vs ventas anteriores
+    ax[1, 0].bar(["Forecast", "Actual", "Anterior", "Año Ant."], 
+                [forecast, ventas_last, ventas_previous, ventas_same_year],
+                color=["orange", "green", "blue", "purple"])
+    ax[1, 0].set_title("Forecast vs Ventas Anteriores")
+    ax[1, 0].grid(axis="y", linestyle="--", alpha=0.7)
+
+    # Comparación últimos 30 días
+    ax[1, 1].bar(["Últimos 30", "Anteriores 30", "Año Anterior", "Average"],
+                [datos["ventas_last"], datos["ventas_previous"], datos["ventas_same_year"], datos["average"]],
+                color=["red", "blue", "purple", "gray"])
+    ax[1, 1].set_title("Comparación de Ventas en 3 Períodos")
+    ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+# -----------------------------------------------------------
+# Desde un enfoque profesional, esta estrategia es ideal para sistemas donde el procesamiento anticipado es costoso o donde la visualización es esporádica y personalizada. 
+# Además, permite escalar mejor en entornos donde se manejan grandes volúmenes de datos, como en retail o logística.
+
+# Desde mi punto de vista, esta arquitectura representa una mejora significativa tanto en rendimiento como en mantenibilidad. 
+# # Incluso se podría extender más adelante integrando visualizaciones interactivas con herramientas como Plotly, Dash o Bokeh.
+# 🏁 Resultados esperados
+# Tiempo de procesamiento reducido al evitar regenerar todos los gráficos.
+
+# Gráficos generados bajo demanda, solo cuando se requiere visualización.
+# Datos guardados como JSON, fácilmente integrables con bases de datos o APIs.
+#-----------------------------------------------------------
 
 # -----------------------------------------------------------
 # 3. Operaciones CRUD para spl_supply_forecast_execution
