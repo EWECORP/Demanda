@@ -1474,7 +1474,7 @@ def guardar_grafico_base64(base64_str, path_archivo):
     with open(path_archivo, "wb") as f:
         f.write(base64.b64decode(base64_str))
 
-def preparar_datos_para_grafico(dfv, articulo, sucursal):
+def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
     fecha_maxima = dfv["Fecha"].max()
     df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
     df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
@@ -1512,69 +1512,30 @@ def preparar_datos_para_grafico(dfv, articulo, sucursal):
         "media_movil": df_filtrado["Media_Movil"].tolist(),
         "semana_num": df_semanal["Semana_Num"].tolist(),
         "ventas_semanales": df_semanal["Unidades"].tolist(),
-        "forecast": None,  # completar al momento de la ejecución si no se conoce antes
-        "ventas_last": ventas_ultimos_30,
-        "ventas_previous": ventas_previos_30,
-        "ventas_same_year": ventas_mismo_periodo_anio_anterior,
-        "average": round(df_filtrado["Unidades"].mean(), 2)
+        "forecast": Forecast,  # completar al momento de la ejecución si no se conoce antes
+        "ventas_last": ventas_last,
+        "ventas_previous": ventas_previous,
+        "ventas_same_year": ventas_same_year,
+        "average": Average,
+        "ventas_ultimos_30": ventas_ultimos_30,
+        "ventas_previos_30": ventas_previos_30,
+        "ventas_anio_anterior": ventas_mismo_periodo_anio_anterior
     }
     
     # Si se va a archivo
         # with open(path_salida, "w", encoding="utf-8") as f:
         # json.dump(datos, f, indent=4)
 
-def preparar_y_guardar_datos_para_grafico(dfv, articulo, sucursal, path_salida):
-    fecha_maxima = dfv["Fecha"].max()
-    df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
-    df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
-
-    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
-    df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
-
-    df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
-    df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
-    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
-
-    # Fechas de comparación
-    fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
-    fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
-    fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
-    fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
-
-    ventas_ultimos_30 = df_filtrado[(df_filtrado["Fecha"] > fecha_inicio_ultimos30)]["Unidades"].sum()
-    ventas_previos_30 = df_filtrado[
-        (df_filtrado["Fecha"] > fecha_inicio_previos30) & (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
-    ]["Unidades"].sum()
-
-    df_filtrado_anio_anterior = df_filtrado.copy()
-    df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
-    ventas_mismo_periodo_anio_anterior = df_filtrado_anio_anterior[
-        (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
-        (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
-    ]["Unidades"].sum()
-
-    datos = {
-        "articulo": articulo,
-        "sucursal": sucursal,
-        "fechas": df_filtrado["Fecha"].dt.strftime("%Y-%m-%d").tolist(),
-        "unidades": df_filtrado["Unidades"].tolist(),
-        "media_movil": df_filtrado["Media_Movil"].fillna(0).tolist(),
-        "semana_num": df_semanal["Semana_Num"].tolist(),
-        "ventas_semanales": df_semanal["Unidades"].tolist(),
-        "ventas_last": ventas_ultimos_30,
-        "ventas_previous": ventas_previos_30,
-        "ventas_same_year": ventas_mismo_periodo_anio_anterior,
-        "average": round(df_filtrado["Unidades"].mean(), 2)
-    }
-
-    with open(path_salida, "w", encoding="utf-8") as f:
-        json.dump(datos, f, indent=4)
-
-def graficar_desde_datos(datos_dict, forecast, ventas_last, ventas_previous, ventas_same_year):
+def graficar_desde_datos_json(datos_dict):
     fechas = pd.to_datetime(datos_dict["fechas"])
     unidades = datos_dict["unidades"]
     media_movil = datos_dict["media_movil"]
     semana_num = datos_dict["semana_num"]
+    forecast = datos_dict["forecast"]
+    ventas_last = datos_dict["ventas_last"]
+    ventas_previous = datos_dict["ventas_previous"]
+    ventas_same_year = datos_dict["ventas_same_year"]
+    average = datos_dict["average"]
     ventas_semanales = datos_dict["ventas_semanales"]
 
     fig, ax = plt.subplots(figsize=(8, 6), nrows=2, ncols=2)
@@ -1601,7 +1562,7 @@ def graficar_desde_datos(datos_dict, forecast, ventas_last, ventas_previous, ven
 
     # Comparación últimos 30 días
     ax[1, 1].bar(["Últimos 30", "Anteriores 30", "Año Anterior", "Average"],
-                [ventas_last, ventas_previous, ventas_same_year, datos_dict["average"]],
+                [ventas_last, ventas_previous, ventas_same_year, average],
                 color=["red", "blue", "purple", "gray"])
     ax[1, 1].set_title("Comparación de Ventas en 3 Períodos")
     ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)

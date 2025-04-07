@@ -64,14 +64,14 @@ def cargar_todos_los_forecasts(carpeta_path, id_proveedor):
 def extraer_ventas(id_proveedor):
     query = f"""
     SELECT V.[F_VENTA] as Fecha,
-           V.[C_ARTICULO] as Codigo_Articulo,
-           V.[C_SUCU_EMPR] as Sucursal,
-           V.[Q_UNIDADES_VENDIDAS] as Unidades
+        V.[C_ARTICULO] as Codigo_Articulo,
+        V.[C_SUCU_EMPR] as Sucursal,
+        V.[Q_UNIDADES_VENDIDAS] as Unidades
     FROM [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T702_EST_VTAS_POR_ARTICULO] V
     LEFT JOIN [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T050_ARTICULOS] A 
         ON V.C_ARTICULO = A.C_ARTICULO
     WHERE A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} 
-          AND V.F_VENTA >= '20250301' AND A.M_BAJA ='N'
+        AND V.F_VENTA >= '20250301' AND A.M_BAJA ='N'
     """
     conn = Open_Connection()
     if conn:
