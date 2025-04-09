@@ -1474,6 +1474,8 @@ def guardar_grafico_base64(base64_str, path_archivo):
     with open(path_archivo, "wb") as f:
         f.write(base64.b64decode(base64_str))
 
+
+
 def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
     fecha_maxima = dfv["Fecha"].max()
     df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
@@ -1527,6 +1529,36 @@ def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last
     # Si se va a archivo
         # with open(path_salida, "w", encoding="utf-8") as f:
         # json.dump(datos, f, indent=4)
+
+def generar_reporte_json(datos):
+    # Generar reporte en formato JSON
+    reporte = {
+        "datos": datos,
+        "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "version": "1.0"
+    }
+
+def insertar_graficos_json(algoritmo, name, id_proveedor):
+        
+    # Recuperar Historial de Ventas
+    df_ventas = pd.read_csv(f'{folder}/{name}_Ventas.csv')
+    df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
+    df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
+    df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+
+    # Recuperando Forecast Calculado
+    df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
+    df_forecast.fillna(0)   # Por si se filtró algún missing value
+    print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {name}")
+    
+    # Agregar la nueva columna de gráficos en df_forecast Iterando sobre todo el DATAFRAME
+    df_forecast["GRAFICO"] = df_forecast.apply(
+        lambda row: generar_grafico_json(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None,
+        axis=1
+    )
+    
+    return df_forecast
+
 
 def graficar_desde_datos_json(datos_dict):
     fechas = pd.to_datetime(datos_dict["fechas"])
