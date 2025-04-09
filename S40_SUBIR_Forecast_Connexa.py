@@ -133,30 +133,6 @@ def actualizar_site_ids(df_forecast_ext, conn, name):
 
     return df_forecast_ext
 
-def insertar_graficos_forecast(algoritmo, name, id_proveedor):
-        
-    # Recuperar Historial de Ventas
-    df_ventas = pd.read_csv(f'{folder}/{name}_Ventas.csv')
-    df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
-    df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
-    df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
-
-    # Recuperando Forecast Calculado
-    df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
-    df_forecast.fillna(0)   # Por si se filtró algún missing value
-    print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {name}")
-    
-    # Agregar la nueva columna de gráficos en df_forecast Iterando sobre todo el DATAFRAME
-    df_forecast["GRAFICO"] = df_forecast.apply(
-        lambda row: generar_grafico_base64(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None,
-        axis=1
-    )
-    
-    return df_forecast
-
-import os
-import shutil
-
 def mover_archivos_procesados(algoritmo, folder):
     destino = os.path.join(folder, "procesado")
     os.makedirs(destino, exist_ok=True)  # Crea la carpeta si no existe

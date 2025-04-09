@@ -1480,6 +1480,8 @@ def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last
     df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
 
     df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
+    df_filtrado["Media_Movil"] = df_filtrado["Media_Movil"].fillna(0)
+
     df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
 
     df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()

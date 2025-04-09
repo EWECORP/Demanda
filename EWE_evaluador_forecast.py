@@ -155,7 +155,7 @@ def guardar_en_postgres(df, tabla_destino):
 
 # Main
 if __name__ == "__main__":
-    id_proveedor = 20
+    id_proveedor = 1074
     carpeta_forecasts = folder
     tabla_destino = "forecast_algoritmo_optimo"
 

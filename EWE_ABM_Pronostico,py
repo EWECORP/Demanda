@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 from dotenv import dotenv_values
 
 # === CARGAR CREDENCIALES DESDE .env ===
@@ -240,7 +242,8 @@ def ejecutar_configuracion():
         messagebox.showerror("Error", f"Error durante la ejecución:\n{e}")
 
 # === INTERFAZ GRÁFICA ===
-root = tk.Tk()
+#root = tk.Tk()
+root = ttk.Window(themename="superhero")
 root.title("Configurador de Ejecución de Pronóstico")
 root.geometry("650x700")
 root.resizable(False, False)

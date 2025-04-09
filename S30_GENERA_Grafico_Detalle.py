@@ -18,7 +18,8 @@ from datetime import datetime
 from funciones_forecast import (
     get_execution_execute_by_status,
     update_execution_execute,
-    generar_grafico_base64
+    generar_grafico_base64,
+    generar_grafico_json
 )
 
 import pandas as pd # uso localmente la lectura de archivos.
@@ -68,7 +69,7 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
             continue
 
         try:
-            grafico = generar_grafico_base64(
+            grafico = generar_grafico_json(
                 df_ventas,
                 row['Codigo_Articulo'],
                 row['Sucursal'],
