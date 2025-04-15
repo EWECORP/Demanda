@@ -13,6 +13,8 @@ Autor: EWE - Zeetrex
 Fecha de creación: [2025-05-23]
 """
 import pandas as pd
+import time
+from datetime import datetime
 
 # Solo importa lo necesario desde el módulo de funciones
 from funciones_forecast import (
@@ -100,6 +102,8 @@ if __name__ == "__main__":
             supply_forecast_model_id = row["forecast_model_id"]
 
             print(f"Procesando ejecución: {name} - Método: {method}")
+            
+            start_time = time.time()
 
             try:
                 df_params = get_full_parameters(supply_forecast_model_id, execution_id) 
@@ -126,6 +130,9 @@ if __name__ == "__main__":
                 get_forecast(id_proveedor, name, ventana, method, f1, f2, f3)
                 
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=20)
+                
+                elapsed = round(time.time() - start_time, 2)
+                print(f"✅ FORECAST : {algoritmo} procesado - Tiempo parcial: {elapsed} segundos")
 
                 print("✅ Ejecución completada con éxito.")
             except Exception as e:

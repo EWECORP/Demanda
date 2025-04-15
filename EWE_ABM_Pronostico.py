@@ -243,7 +243,7 @@ def ejecutar_configuracion():
 
 # === INTERFAZ GRÁFICA ===
 #root = tk.Tk()
-root = ttk.Window(themename="superhero")
+root = ttk.Window(themename="cerculean")
 root.title("Configurador de Ejecución de Pronóstico")
 root.geometry("650x700")
 root.resizable(False, False)

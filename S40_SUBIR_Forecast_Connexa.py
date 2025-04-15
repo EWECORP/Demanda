@@ -30,6 +30,9 @@ from funciones_forecast import (
     generar_mini_grafico,
     generar_grafico_base64,
     obtener_demora_oc,
+    Open_Postgres_retry,
+    id_aleatorio,
+    Close_Connection,
     obtener_datos_stock
 )
 
@@ -40,82 +43,215 @@ secrets = dotenv_values(".env")
 folder = secrets["FOLDER_DATOS"]
 
 import numpy as np
+import json
 
 # También podés importar funciones adicionales si tu módulo las necesita
 
-import time
-from datetime import datetime
-import os
 from random import randint
+from datetime import datetime
 import shutil
+import os
+import math
+import time
+from functools import wraps
 
-def publish_execution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id):
-    print(f"🚀 Comenzando publicación a CONNEXA | Total registros: {len(df_forecast_ext)}")
+def medir_tiempo(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"\n🕒 Iniciando ejecución de {func.__name__}...")
+        inicio = time.time()
+        resultado = func(*args, **kwargs)
+        fin = time.time()
+        duracion = fin - inicio
+        print(f"✅ Finalizó {func.__name__} en {duracion:.2f} segundos.\n")
+        return resultado
+    return wrapper
+
+def mover_archivo(origen, destino_dir):
+    if not os.path.exists(destino_dir):
+        os.makedirs(destino_dir)
+    destino = os.path.join(destino_dir, os.path.basename(origen))
+    shutil.move(origen, destino)
     
-    total = len(df_forecast_ext)
-    log_path = os.path.join(folder, "log_envio_s40.txt")  # Usá variable folder si corresponde
 
-    start_time = time.time()
+# Decorador para medir tiempo de ejecución
+def medir_tiempo(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"\n🕒 Iniciando ejecución de {func.__name__}...")
+        inicio = time.time()
+        resultado = func(*args, **kwargs)
+        fin = time.time()
+        duracion = fin - inicio
+        print(f"✅ Finalizó {func.__name__} en {duracion:.2f} segundos.\n")
+        return resultado
+    return wrapper
 
-    for i, (_, row) in enumerate(df_forecast_ext.iterrows(), 1):
-        try:
-            create_execution_execute_result(
-                confidence_level=0.92,
-                error_margin=0.07,
-                expected_demand=row['Forecast'],
-                average_daily_demand=row['Average'],
-                lower_bound=row.get('Q_DIAS_STOCK', 0),
-                upper_bound=row.get('Q_VENTA_DIARIA_NORMAL', 0),
-                product_id=row['product_id'],
-                site_id=row['site_id'],
-                supply_forecast_execution_execute_id=forecast_execution_execute_id,
-                algorithm=row['algoritmo'],
-                average=row['Average'],
-                ext_product_code=row['Codigo_Articulo'],
-                ext_site_code=row['Sucursal'],
-                ext_supplier_code=row['id_proveedor'],
-                forcast=row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
-                graphic=row['GRAFICO'],
-                quantity_stock=row.get('Q_STOCK_UNIDADES', 0) + row.get('Q_STOCK_PESO', 0),
-                sales_last=row['ventas_last'],
-                sales_previous=row['ventas_previous'],
-                sales_same_year=row['ventas_same_year'],
-                supplier_id=supplier_id,
-                windows=row['ventana'],
-                deliveries_pending=1
+def mover_archivo(origen, destino_dir):
+    if not os.path.exists(destino_dir):
+        os.makedirs(destino_dir)
+    destino = os.path.join(destino_dir, os.path.basename(origen))
+    shutil.move(origen, destino)
+
+def bulk_create_execution_execute_result(rows_to_insert, batch_size=500):
+    if not rows_to_insert:
+        print("⚠️ No hay registros para insertar.")
+        return 0
+
+    conn = Open_Postgres_retry()
+    if conn is None:
+        print("❌ No se pudo conectar después de varios intentos")
+        return 0
+
+    total_insertados = 0
+    try:
+        cur = conn.cursor()
+        query = """
+            INSERT INTO public.spl_supply_forecast_execution_execute_result (
+                id, expected_demand, "timestamp", product_id, site_id, supply_forecast_execution_execute_id, 
+                algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, forcast, graphic, 
+                quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
+                deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
+                layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price, 
+                window_sales_days
             )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+
+        total_batches = math.ceil(len(rows_to_insert) / batch_size)
+
+        for i in range(total_batches):
+            start = i * batch_size
+            end = start + batch_size
+            batch = rows_to_insert[start:end]
+            cur.executemany(query, batch)
+            conn.commit()
+            total_insertados += len(batch)
+            print(f"✅ Batch {i+1}/{total_batches} insertado con {len(batch)} registros.")
+
+        cur.close()
+        return total_insertados
+
+    except Exception as e:
+        print(f"❌ Error en bulk_create_execution_execute_result: {e}")
+        conn.rollback()
+        return total_insertados
+    finally:
+        Close_Connection(conn)
+
+@medir_tiempo
+def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, id_proveedor, supplier_id, folder, algoritmo, batch_size=500):
+    errores = []
+    rows_to_insert = []
+
+    for i, row in df_forecast_ext.iterrows():
+        try:
+            if pd.isna(row['product_id']) or pd.isna(row['site_id']):
+                raise ValueError("Falta product_id o site_id")
+
+            id_result = id_aleatorio()
+            timestamp = datetime.utcnow()
+            
+            try:
+                grafico_serializado = json.dumps(row['GRAFICO'])  # Asegura conversión a str JSON
+                if len(grafico_serializado) > 100_000:
+                    raise ValueError("El gráfico excede el tamaño permitido")
+            except Exception as e:
+                print(f"⚠️ Error serializando 'GRAFICO' para artículo {row['Codigo_Articulo']}: {e}")
+                errores.append(i)
+                continue
+            
+            fila = (
+                #   id, expected_demand, "timestamp", product_id, site_id, supply_forecast_execution_execute_id, 
+                id_result,
+                row['Forecast'],
+                timestamp,
+                row['product_id'],
+                row['site_id'],
+                forecast_execution_execute_id,
+                #     algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, forcast, graphic, 
+                row['algoritmo'],
+                row['Average'],
+                row['Codigo_Articulo'],
+                row['Sucursal'],
+                id_proveedor,
+                row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
+                grafico_serializado,    # row['GRAFICO'],
+                #     quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows,
+                row.get('Q_STOCK_UNIDADES', 0) + row.get('Q_STOCK_PESO', 0),
+                row['ventas_last'],
+                row['ventas_previous'],
+                row['ventas_same_year'],
+                str(supplier_id),
+                row['ventana'],
+                #     deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
+                row.get('Q_TRANSF_PEND',0) + row.get('Q_TRANSF_EN_PREP',0), 
+                0,
+                False,
+                row.get('I_LISTA_CALCULADO', 0),
+                row.get('Q_FACTOR_VTA_SUCU',1),
+                row.get('U_PISO_PALETIZADO', 1),
+                #     layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price,
+                row.get('U_ALTURA_PALETIZADO', 1),
+                row.get('Q_FACTOR_PROVEEDOR', 1),
+                row.get('I_PRECIO_VTA', 0),
+                row.get('I_COSTO_ESTADISTICO', 0),
+                #     window_sales_days
+                row.get('Q_DIAS_STOCK', 0)
+            )
+            if len(fila) != 30:
+                print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas")
+                print(fila)
+                continue
+            
+            if any(isinstance(v, (list, dict)) for v in fila):
+                print(f"⚠️ Fila con estructura inválida: {fila}")
+                continue
+
+            rows_to_insert.append(fila)
+
         except Exception as e:
-            print(f"❌ Error en registro {i}/{total} - ID proveedor {row.get('id_proveedor')} - Artículo {row.get('Codigo_Articulo')}: {e}")
-            continue
+            print(f"❌ Error preparando fila {i+1}/{len(df_forecast_ext)} - Artículo {row['Codigo_Articulo']}: {e}")
+            errores.append(i)
 
-        if i % 100 == 0 or i == total:
-            elapsed = round(time.time() - start_time, 2)
-            print(f"✅ Enviados {i} de {total} registros - Tiempo parcial: {elapsed} segundos")
+    if errores:
+        print(f"❌ Publicación abortada: errores en {len(errores)} registros. Archivos no movidos.")
+        return
 
-            # Log externo
-            with open(log_path, "a", encoding="utf-8") as log:
-                log.write(f"[{datetime.now()}] Enviados {i} de {total} registros para ejecución {forecast_execution_execute_id} | Tiempo parcial: {elapsed} segundos\n")
+    total_insertados = bulk_create_execution_execute_result(rows_to_insert, batch_size=batch_size)
 
-            start_time = time.time()  # Reset para siguiente tramo
-
-    print("🎯 Publicación finalizada.")
-
+    if total_insertados == len(rows_to_insert):
+        print("🎯 Publicación finalizada.")
+        print("✅ Publicación completa. Moviendo archivos...")
+        mover_archivos_procesados(algoritmo, folder)
+        print(f"📁 Archivos movidos correctamente para {algoritmo}")
+    else:
+        print("⚠️ Inserción parcial. Archivos NO fueron movidos.")
 
 def actualizar_site_ids(df_forecast_ext, conn, name):
-    """Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site"""
+    """
+    Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site.
+    Asegura que no haya conflictos de columnas durante el merge.
+    """
     query = """
     SELECT code, name, id FROM public.fnd_site
     WHERE company_id = 'e7498b2e-2669-473f-ab73-e2c8b4dcc585'
-    ORDER BY code 
+    ORDER BY code
     """
     stores = pd.read_sql(query, conn)
+
+    # Asegurar que el campo 'code' sea numérico y entero
     stores = stores[pd.to_numeric(stores['code'], errors='coerce').notna()].copy()
     stores['code'] = stores['code'].astype(int)
 
-    # Eliminar site_id anterior si ya existía
+    # Eliminar columna 'site_id' si ya existe
     df_forecast_ext = df_forecast_ext.drop(columns=['site_id'], errors='ignore')
 
-    # Merge con los stores para obtener site_id
+    # Eliminar columna 'code' si ya existe en df_forecast_ext para evitar colisión en el merge
+    if 'code' in df_forecast_ext.columns:
+        df_forecast_ext = df_forecast_ext.drop(columns=['code'])
+
+    # Realizar el merge con stores (fnd_site) para traer el site_id
     df_forecast_ext = df_forecast_ext.merge(
         stores[['code', 'id']],
         left_on='Sucursal',
@@ -123,7 +259,7 @@ def actualizar_site_ids(df_forecast_ext, conn, name):
         how='left'
     ).rename(columns={'id': 'site_id'})
 
-    # Validar valores faltantes
+    # Validar valores faltantes de site_id
     missing = df_forecast_ext[df_forecast_ext['site_id'].isna()]
     if not missing.empty:
         print(f"⚠️ Faltan site_id en {len(missing)} registros")
@@ -132,6 +268,7 @@ def actualizar_site_ids(df_forecast_ext, conn, name):
         print("✅ Todos los registros tienen site_id válido")
 
     return df_forecast_ext
+
 
 def mover_archivos_procesados(algoritmo, folder):
     destino = os.path.join(folder, "procesado")
@@ -272,17 +409,13 @@ if __name__ == "__main__":
                 contains_breaks = quiebres  # ICONO de FALTANTES
             )
             
-            # Publicar en tabla de resultados
-            publish_execution_results(df_forecast_ext, forecast_execution_execute_id, supplier_id)
+            ### NUEVA RUTINA BULK            
+            publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, id_proveedor, supplier_id, folder, algoritmo, batch_size=500)
             print(f"-> Detalle Forecast Publicado CONNEXA: {id_proveedor}, Label: {name}")
                         
             # ✅ Actualizar Estado intermedio de Procesamiento....
             update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=50)
             print(f"✅ Estado actualizado a 50 para {execution_id}")
-            
-            # ✅ Morver Archivo a carpeta de Procesado ....
-            mover_archivos_procesados(algoritmo, folder)
-            print(f"✅ Archivo movido a Procesado: {algoritmo}")
 
         except Exception as e:
             import traceback

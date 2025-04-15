@@ -1,0 +1,75 @@
+CONTROL EJECUCIÓN
+140 - UNIVELVER - ALGO 01 (5445 Registros)
+
+INICIO 12:57
+
+S10 - Finaliza 13:11
+S20 - Finaliza 13:11
+S30 - Finaliza 13:13
+S40 - Finaliza 17:10  	🚀 Comenzando publicación a CONNEXA | 13:13 | Total registros: 5439 
+			✅ Enviados 100 de 5439 registros - Tiempo parcial: 215.34 segundos (c/reintentos) --> Error en la conexión, intento 1/5: 3 veces. (postgres)
+			✅ Enviados 200 de 5439 registros - Tiempo parcial: 133.61 segundos (s/reintentos)
+			✅ Enviados 300 de 5439 registros - Tiempo parcial: 212.28 segundos (c/reintentos) --> Error en la conexión, intento 1/5: 3 veces. (postgres)
+			✅ Enviados 400 de 5439 registros - Tiempo parcial: 133.02 segundos (s/reintentos)
+			✅ Enviados 500 de 5439 registros - Tiempo parcial: 211.42 segundos (c/reintentos) --> Error en la conexión, intento 1/5: 3 veces. (postgres)
+			✅ Enviados 600 de 5439 registros - Tiempo parcial: 159.3 segundos  (c/reintentos) --> Error en la conexión, intento 1/5: 1 vez.   (postgres)
+			✅ Enviados 700 de 5439 registros - Tiempo parcial: 186.22 segundos (c/reintentos) --> Error en la conexión, intento 1/5: 2 veces. (postgres)
+			✅ Enviados 800 de 5439 registros - Tiempo parcial: 133.42 segundos
+			✅ Enviados 900 de 5439 registros - Tiempo parcial: 237.75 segundos
+			✅ Enviados 1000 de 5439 registros - Tiempo parcial: 185.62 segundos
+			✅ Enviados 1100 de 5439 registros - Tiempo parcial: 159.24 segundos
+			✅ Enviados 1200 de 5439 registros - Tiempo parcial: 211.7 segundos
+			✅ Enviados 1300 de 5439 registros - Tiempo parcial: 160.04 segundos
+			✅ Enviados 1400 de 5439 registros - Tiempo parcial: 185.8 segundos
+			✅ Enviados 1500 de 5439 registros - Tiempo parcial: 159.99 segundos
+✅ Enviados 1600 de 5439 registros - Tiempo parcial: 160.0 segundos
+✅ Enviados 1700 de 5439 registros - Tiempo parcial: 162.27 segundos
+✅ Enviados 1800 de 5439 registros - Tiempo parcial: 160.04 segundos
+✅ Enviados 1900 de 5439 registros - Tiempo parcial: 185.7 segundos
+✅ Enviados 2000 de 5439 registros - Tiempo parcial: 237.75 segundos
+✅ Enviados 2100 de 5439 registros - Tiempo parcial: 159.37 segundos
+✅ Enviados 2200 de 5439 registros - Tiempo parcial: 186.46 segundos
+✅ Enviados 2300 de 5439 registros - Tiempo parcial: 211.41 segundos
+✅ Enviados 2400 de 5439 registros - Tiempo parcial: 159.63 segundos
+✅ Enviados 2500 de 5439 registros - Tiempo parcial: 186.27 segundos
+✅ Enviados 2600 de 5439 registros - Tiempo parcial: 185.87 segundos
+✅ Enviados 2700 de 5439 registros - Tiempo parcial: 160.1 segundos
+✅ Enviados 2800 de 5439 registros - Tiempo parcial: 211.78 segundos
+✅ Enviados 2900 de 5439 registros - Tiempo parcial: 133.53 segundos
+✅ Enviados 3000 de 5439 registros - Tiempo parcial: 186.65 segundos
+✅ Enviados 3100 de 5439 registros - Tiempo parcial: 212.1 segundos
+✅ Enviados 3200 de 5439 registros - Tiempo parcial: 160.16 segundos
+✅ Enviados 3300 de 5439 registros - Tiempo parcial: 159.86 segundos
+✅ Enviados 3400 de 5439 registros - Tiempo parcial: 160.2 segundos
+✅ Enviados 3500 de 5439 registros - Tiempo parcial: 160.91 segundos
+✅ Enviados 3600 de 5439 registros - Tiempo parcial: 134.4 segundos
+✅ Enviados 3700 de 5439 registros - Tiempo parcial: 134.23 segundos
+✅ Enviados 3800 de 5439 registros - Tiempo parcial: 186.19 segundos
+✅ Enviados 3900 de 5439 registros - Tiempo parcial: 133.87 segundos
+✅ Enviados 4000 de 5439 registros - Tiempo parcial: 185.37 segundos
+✅ Enviados 4100 de 5439 registros - Tiempo parcial: 133.75 segundos
+✅ Enviados 4200 de 5439 registros - Tiempo parcial: 135.65 segundos
+✅ Enviados 4300 de 5439 registros - Tiempo parcial: 159.93 segundos
+✅ Enviados 4400 de 5439 registros - Tiempo parcial: 136.14 segundos
+✅ Enviados 4500 de 5439 registros - Tiempo parcial: 160.74 segundos
+✅ Enviados 4600 de 5439 registros - Tiempo parcial: 135.12 segundos
+✅ Enviados 4700 de 5439 registros - Tiempo parcial: 135.38 segundos
+✅ Enviados 4800 de 5439 registros - Tiempo parcial: 133.85 segundos
+✅ Enviados 4900 de 5439 registros - Tiempo parcial: 134.09 segundos
+✅ Enviados 5000 de 5439 registros - Tiempo parcial: 134.2 segundos
+✅ Enviados 5100 de 5439 registros - Tiempo parcial: 134.64 segundos
+✅ Enviados 5200 de 5439 registros - Tiempo parcial: 135.7 segundos
+✅ Enviados 5300 de 5439 registros - Tiempo parcial: 134.33 segundos
+✅ Enviados 5400 de 5439 registros - Tiempo parcial: 134.48 segundos
+✅ Enviados 5439 de 5439 registros - Tiempo parcial: 57.12 segundos
+🎯 Publicación finalizada.
+-> Detalle Forecast Publicado CONNEXA: 140, Label: 140_UNILEVER
+✅ Estado actualizado a 50 para dd5fd1b6-7592-46f5-bdb8-96ede222d2c5
+📁 Archivo movido: 140_UNILEVER_ALGO_01_Pronostico_Extendido.csv → data\procesado\140_UNILEVER_ALGO_01_Pronostico_Extendido.csv
+📁 Archivo movido: 140_UNILEVER_ALGO_01_Pronostico_Extendido_Con_Graficos.csv → data\procesado\140_UNILEVER_ALGO_01_Pronostico_Extendido_Con_Graficos.csv
+📁 Archivo movido: 140_UNILEVER_ALGO_01_Pronostico_Extendido_FINAL.csv → data\procesado\140_UNILEVER_ALGO_01_Pronostico_Extendido_FINAL.csv
+📁 Archivo movido: 140_UNILEVER_ALGO_01_Solicitudes_Compra.csv → data\procesado\140_UNILEVER_ALGO_01_Solicitudes_Compra.csv
+✅ Archivo movido a Procesado: 140_UNILEVER_ALGO_01
+
+			
+

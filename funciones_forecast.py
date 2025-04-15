@@ -185,13 +185,12 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             ,S.[M_HABILITADO_SUCU]
             ,S.[M_FOLDER]
             ,A.M_BAJA  --- Puede no ser necesaria al hacer inner
-            --,S.[Q_UNID_PESO_VTA_MES_ACTUAL]
             ,S.[F_ULTIMA_VTA]
             ,S.[Q_VTA_ULTIMOS_15DIAS]-- OJO esto está en BULTOS DIARCO
             ,S.[Q_VTA_ULTIMOS_30DIAS]-- OJO esto está en BULTOS DIARCO
             ,S.[Q_TRANSF_PEND]-- OJO esto está en BULTOS DIARCO
             ,S.[Q_TRANSF_EN_PREP]-- OJO esto está en BULTOS DIARCO
-            --,A.[N_ARTICULO]
+            --- ,A.[N_ARTICULO]
             ,A.[C_FAMILIA]
             ,A.[C_RUBRO]
             ,A.[C_CLASIFICACION_COMPRA] -- ojo nombre erroneo en la contratabla
@@ -204,6 +203,10 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             ,R.[Q_DIAS_STOCK]
             ,R.[Q_DIAS_SOBRE_STOCK]
             ,R.[Q_DIAS_ENTREGA_PROVEEDOR]
+			,AP.[Q_FACTOR_PROVEEDOR]
+			,AP.[U_PISO_PALETIZADO]
+			,AP.[U_ALTURA_PALETIZADO]
+			,CCP.[I_LISTA_CALCULADO]
                 
         FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
         INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
@@ -211,13 +214,16 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] ST
             ON ST.C_ARTICULO = S.[C_ARTICULO] 
             AND ST.C_SUCU_EMPR = S.[C_SUCU_EMPR]
-        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_PARAM_STOCK] P
-            ON P.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
-            AND P.[C_FAMILIA] = A.[C_FAMILIA]
-            AND P.[C_RUBRO] = A.[C_RUBRO]
-            AND P.[C_CLAISIFICACION_COMPRA] = A.[C_CLASIFICACION_COMPRA]  -- ojo nombre erroneo
-        AND P.[C_FAMILIA] =A.[C_FAMILIA]
-        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
+
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T052_ARTICULOS_PROVEEDOR] AP
+			ON A.[C_PROVEEDOR_PRIMARIO] = AP.[C_PROVEEDOR]
+				AND S.[C_ARTICULO] = AP.[C_ARTICULO]
+		LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_CONDCOMPRA_COSTOS] CCP
+			ON A.[C_PROVEEDOR_PRIMARIO] = CCP.[C_PROVEEDOR]
+				AND S.[C_ARTICULO] = CCP.[C_ARTICULO]
+				AND S.[C_SUCU_EMPR] = CCP.[C_SUCU_EMPR]
+
+		LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
             ON R.[C_ARTICULO] = S.[C_ARTICULO]
             AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
 
@@ -501,20 +507,29 @@ def get_precios(id_proveedor):
     return precios
 
 def actualizar_site_ids(df_forecast_ext, conn, name):
-    """Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site"""
+    """
+    Reemplaza site_id en df_forecast_ext con datos válidos desde fnd_site.
+    Asegura que no haya conflictos de columnas durante el merge.
+    """
     query = """
     SELECT code, name, id FROM public.fnd_site
     WHERE company_id = 'e7498b2e-2669-473f-ab73-e2c8b4dcc585'
-    ORDER BY code 
+    ORDER BY code
     """
     stores = pd.read_sql(query, conn)
+
+    # Asegurar que el campo 'code' sea numérico y entero
     stores = stores[pd.to_numeric(stores['code'], errors='coerce').notna()].copy()
     stores['code'] = stores['code'].astype(int)
 
-    # Eliminar site_id anterior si ya existía
+    # Eliminar columna 'site_id' si ya existe
     df_forecast_ext = df_forecast_ext.drop(columns=['site_id'], errors='ignore')
 
-    # Merge con los stores para obtener site_id
+    # Eliminar columna 'code' si ya existe en df_forecast_ext para evitar colisión en el merge
+    if 'code' in df_forecast_ext.columns:
+        df_forecast_ext = df_forecast_ext.drop(columns=['code'])
+
+    # Realizar el merge con stores (fnd_site) para traer el site_id
     df_forecast_ext = df_forecast_ext.merge(
         stores[['code', 'id']],
         left_on='Sucursal',
@@ -522,7 +537,7 @@ def actualizar_site_ids(df_forecast_ext, conn, name):
         how='left'
     ).rename(columns={'id': 'site_id'})
 
-    # Validar valores faltantes
+    # Validar valores faltantes de site_id
     missing = df_forecast_ext[df_forecast_ext['site_id'].isna()]
     if not missing.empty:
         print(f"⚠️ Faltan site_id en {len(missing)} registros")
@@ -531,6 +546,7 @@ def actualizar_site_ids(df_forecast_ext, conn, name):
         print("✅ Todos los registros tienen site_id válido")
 
     return df_forecast_ext
+
 
 def mover_archivos_procesados(algoritmo, folder):    # Movel a procesado los archivos.
     destino = os.path.join(folder, "procesado")
@@ -542,6 +558,22 @@ def mover_archivos_procesados(algoritmo, folder):    # Movel a procesado los arc
             destino_final = os.path.join(destino, archivo)
             shutil.move(origen, destino_final)
             print(f"📁 Archivo movido: {archivo} → {destino_final}")
+            
+            
+import time
+from functools import wraps
+
+def medir_tiempo(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        print(f"\n🕒 Iniciando ejecución de {func.__name__}...")
+        inicio = time.time()
+        resultado = func(*args, **kwargs)
+        fin = time.time()
+        duracion = fin - inicio
+        print(f"✅ Finalizó {func.__name__} en {duracion:.2f} segundos.\n")
+        return resultado
+    return wrapper
 
 ###----------------------------------------------------------------
 #     ALGORITMOS
@@ -1314,7 +1346,8 @@ def generar_grafico_base64(dfv, articulo, sucursal, Forecast, Average, ventas_la
     colors =["red", "blue", "green", "orange", "purple", "brown", "pink", "gray", "olive", "cyan"]
 
     # Ventas Diarias
-    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
+    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7, min_periods=1).mean()
+    df_filtrado["Media_Movil"] = df_filtrado["Media_Movil"].fillna(0)
 
     # Ventas Diarias
     ax[0, 0].plot(df_filtrado["Fecha"], df_filtrado["Unidades"], marker="o", linestyle="-", label="Ventas", color=colors[0])
@@ -1330,6 +1363,7 @@ def generar_grafico_base64(dfv, articulo, sucursal, Forecast, Average, ventas_la
     df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
     df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
     df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
+    df_semanal["Media_Movil"] =  df_semanal["Media_Movil"].fillna(0)
 
     # Histograma de ventas semanales
     ax[0, 1].bar(df_semanal["Semana_Num"], df_semanal["Unidades"], color=[colors[1]], alpha=0.7)
@@ -1427,7 +1461,8 @@ def generar_grafico_base64_plotly(df_filtrado, articulo, sucursal, Forecast, Ave
     fig.update_layout(title_text=f"Demanda Articulo {articulo} - Sucursal {sucursal}", height=800, width=1000)
 
     # Media móvil
-    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
+    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7, min_periods=1).mean()
+    df_filtrado["Media_Movil"] = df_filtrado["Media_Movil"].fillna(0)
 
     # Gráfico 1
     fig.add_trace(go.Scatter(x=df_filtrado["Fecha"], y=df_filtrado["Unidades"], mode='lines+markers', name='Ventas'), row=1, col=1)
@@ -1475,20 +1510,17 @@ def guardar_grafico_base64(base64_str, path_archivo):
         f.write(base64.b64decode(base64_str))
 
 
-
 def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
     fecha_maxima = dfv["Fecha"].max()
     df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
     df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
 
-    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7).mean()
-    df_filtrado["Media_Movil"] = df_filtrado["Media_Movil"].fillna(0)
-
+    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7, min_periods=1).mean().fillna(0)
     df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
 
     df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
     df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
-    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7).mean()
+    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7, min_periods=1).mean()
 
     # Fechas de comparación
     fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
@@ -1496,47 +1528,55 @@ def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last
     fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
     fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
 
-    ventas_ultimos_30 = df_filtrado[(df_filtrado["Fecha"] > fecha_inicio_ultimos30)]["Unidades"].sum()
-    ventas_previos_30 = df_filtrado[
+    ventas_ultimos_30 = float(df_filtrado[df_filtrado["Fecha"] > fecha_inicio_ultimos30]["Unidades"].sum().item())
+    ventas_previos_30 = float(df_filtrado[
         (df_filtrado["Fecha"] > fecha_inicio_previos30) & (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
-    ]["Unidades"].sum()
+    ]["Unidades"].sum().item())
 
     df_filtrado_anio_anterior = df_filtrado.copy()
     df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
-    ventas_mismo_periodo_anio_anterior = df_filtrado_anio_anterior[
-        (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
-        (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
-    ]["Unidades"].sum()
+    ventas_mismo_periodo_anio_anterior = float(
+        df_filtrado_anio_anterior[
+            (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
+            (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
+        ]["Unidades"].sum().item()
+    )
 
     return {
-        "articulo": articulo,
-        "sucursal": sucursal,
+        "articulo": int(articulo),
+        "sucursal": int(sucursal),
         "fechas": df_filtrado["Fecha"].dt.strftime("%Y-%m-%d").tolist(),
-        "unidades": df_filtrado["Unidades"].tolist(),
-        "media_movil": df_filtrado["Media_Movil"].tolist(),
-        "semana_num": df_semanal["Semana_Num"].tolist(),
-        "ventas_semanales": df_semanal["Unidades"].tolist(),
-        "forecast": Forecast,  # completar al momento de la ejecución si no se conoce antes
-        "ventas_last": ventas_last,
-        "ventas_previous": ventas_previous,
-        "ventas_same_year": ventas_same_year,
-        "average": Average,
-        "ventas_ultimos_30": ventas_ultimos_30,
-        "ventas_previos_30": ventas_previos_30,
-        "ventas_anio_anterior": ventas_mismo_periodo_anio_anterior
+        "unidades": [float(x) for x in df_filtrado["Unidades"]],
+        "media_movil": [float(x) for x in df_filtrado["Media_Movil"]],
+        "semana_num": df_semanal["Semana_Num"].astype(int).tolist(),
+        "ventas_semanales": [float(x) for x in df_semanal["Unidades"]],
+        "forecast": float(Forecast),
+        "ventas_last": float(ventas_last),
+        "ventas_previous": float(ventas_previous),
+        "ventas_same_year": float(ventas_same_year),
+        "average": float(Average),
+        "ventas_ultimos_30": float(ventas_ultimos_30),
+        "ventas_previos_30": float(ventas_previos_30),
+        "ventas_anio_anterior": float(ventas_mismo_periodo_anio_anterior)
     }
-    
-    # Si se va a archivo
-        # with open(path_salida, "w", encoding="utf-8") as f:
-        # json.dump(datos, f, indent=4)
 
-def generar_reporte_json(datos):
-    # Generar reporte en formato JSON
-    reporte = {
-        "datos": datos,
-        "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "version": "1.0"
-    }
+import json
+import numpy as np
+
+def convertir_json(obj):
+    if isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj)
+    elif isinstance(obj, (np.ndarray, list)):
+        return [convertir_json(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: convertir_json(v) for k, v in obj.items()}
+    else:
+        return obj
+# Se aplicaría
+# json.dumps(convertir_json(mi_diccionario))
+
 
 def insertar_graficos_json(algoritmo, name, id_proveedor):
         
@@ -1645,6 +1685,16 @@ def graficar_desde_json(path_json, forecast, ventas_last, ventas_previous, venta
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
+    
+
+def generar_reporte_json(datos):
+    # Generar reporte en formato JSON
+    reporte = {
+        "datos": datos,
+        "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "version": "1.0"
+    }
+
 
 # -----------------------------------------------------------
 # Desde un enfoque profesional, esta estrategia es ideal para sistemas donde el procesamiento anticipado es costoso o donde la visualización es esporádica y personalizada. 
@@ -2103,39 +2153,58 @@ def delete_execution_execute(exec_id):
 # -----------------------------------------------------------
 # 6. Operaciones CRUD para spl_supply_forecast_execution_execute_result
 # -----------------------------------------------------------
-def create_execution_execute_result(confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, upper_bound,
-                                    product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code,
-                                    forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, deliveries_pending):
+def create_execution_execute_result(expected_demand, product_id, site_id, supply_forecast_execution_execute_id,
+                                    algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, 
+                                    forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, 
+                                    supplier_id, windows, deliveries_pending, quantity_confirmed, approved, 
+                                    base_purchase_price, distribution_unit, layer_pallet, number_layer_pallet, 
+                                    purchase_unit, sales_price, statistic_base_price, window_sales_days):
+    
     conn = Open_Postgres_retry()
     if conn is None:
         print("❌ No se pudo conectar después de varios intentos")
         return None
+
     try:
         cur = conn.cursor()
         id_result = id_aleatorio()
         timestamp = datetime.utcnow()
+
         query = """
             INSERT INTO public.spl_supply_forecast_execution_execute_result (
-                id, confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, "timestamp", upper_bound, 
-                product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, 
-                forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
-                deliveries_pending
+                id, expected_demand, "timestamp", product_id, site_id, supply_forecast_execution_execute_id, 
+                algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, forcast, graphic, 
+                quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
+                deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
+                layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price, 
+                window_sales_days
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        cur.execute(query, (id_result, confidence_level, error_margin, expected_demand, average_daily_demand, lower_bound, timestamp, upper_bound, 
-                            product_id, site_id, supply_forecast_execution_execute_id, algorithm, average, ext_product_code, ext_site_code, ext_supplier_code,
-                            forcast, graphic, quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, deliveries_pending))
+
+        values = (
+            id_result, expected_demand, timestamp, product_id, site_id, supply_forecast_execution_execute_id,
+            algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, forcast, graphic, 
+            quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
+            deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit,
+            layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price,
+            window_sales_days
+        )
+
+        cur.execute(query, values)
         conn.commit()
         cur.close()
         return id_result
+
     except Exception as e:
-        print(f"Error en create_execution_execute_result: {e}")
+        print(f"❌ Error en create_execution_execute_result: {e}")
         conn.rollback()
         return None
+
     finally:
         Close_Connection(conn)
-
+        
+        
 def get_execution_execute_result(result_id):
     conn = Open_Conn_Postgres()
     if conn is None:
