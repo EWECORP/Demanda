@@ -26,9 +26,7 @@ from funciones_forecast import (
     get_precios,
     get_execution_execute_by_status,
     update_execution_execute,
-    create_execution_execute_result,
     generar_mini_grafico,
-    generar_grafico_base64,
     obtener_demora_oc,
     Open_Postgres_retry,
     id_aleatorio,
@@ -113,9 +111,9 @@ def bulk_create_execution_execute_result(rows_to_insert, batch_size=500):
                 quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
                 deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
                 layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price, 
-                window_sales_days
+                window_sales_days,units_reserved
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
         total_batches = math.ceil(len(rows_to_insert) / batch_size)
@@ -197,7 +195,9 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row.get('I_PRECIO_VTA', 0),
                 row.get('I_COSTO_ESTADISTICO', 0),
                 #     window_sales_days
-                row.get('Q_DIAS_STOCK', 0)
+                row.get('Q_DIAS_STOCK', 0),
+                #     units_reserved
+                row.get('Q_REPONER_INCLUIDO_SOBRE_STOCK', 0)  # Esta columna no está en el DataFrame original
             )
             if len(fila) != 30:
                 print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas")
