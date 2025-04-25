@@ -196,11 +196,11 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row.get('I_COSTO_ESTADISTICO', 0),
                 #     window_sales_days
                 row.get('Q_DIAS_STOCK', 0),
-                #     units_reserved
-                row.get('Q_REPONER_INCLUIDO_SOBRE_STOCK', 0)  # Esta columna no está en el DataFrame original
+                0  # <-- CERO FIJO PARA units_reserved
             )
-            if len(fila) != 30:
-                print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas")
+        
+            if len(fila) != 31:
+                print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas (esperadas: 31)")
                 print(fila)
                 continue
             
@@ -362,9 +362,20 @@ if __name__ == "__main__":
 
             # DATOS COMPLEMENTARIOS
             df_stock = obtener_datos_stock(id_proveedor= id_proveedor, etiqueta= algoritmo )
-            total_stock_valorizado = float(round(df_stock['Stock_Valorizado'].sum() / 1000000, 2))
-            total_venta_valorizada = float(round(df_stock['Venta_Valorizada'].sum() / 1000000, 2))
-            days= int( total_stock_valorizado / total_venta_valorizada * 30 )
+            if df_stock is None or df_stock.empty:
+                print(f"⚠️ No se pudo recuperar datos de stock para el proveedor {id_proveedor}. Se omite cálculo de stock.")
+                total_stock_valorizado = 0
+                total_venta_valorizada = 0
+                days = 0
+                semaforo = 'white'
+            else:
+                total_stock_valorizado = float(round(df_stock['Stock_Valorizado'].sum() / 1000000, 2))
+                total_venta_valorizada = float(round(df_stock['Venta_Valorizada'].sum() / 1000000, 2))
+                if total_venta_valorizada == 0:
+                    days = 0
+                else:
+                    days = int(total_stock_valorizado / total_venta_valorizada * 30)
+
             # Condiciones Dias de STOCK
             if days > 30:
                 semaforo= 'green'
