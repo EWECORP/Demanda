@@ -111,9 +111,9 @@ def bulk_create_execution_execute_result(rows_to_insert, batch_size=500):
                 quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows, 
                 deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
                 layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price, 
-                window_sales_days,units_reserved
+                window_sales_days, units_reserved, blocked_for_purchase, sales_previous15days_period, sales_recent15days_period
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
         total_batches = math.ceil(len(rows_to_insert) / batch_size)
@@ -196,11 +196,14 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row.get('I_COSTO_ESTADISTICO', 0),
                 #     window_sales_days
                 row.get('Q_DIAS_STOCK', 0),
-                0  # <-- CERO FIJO PARA units_reserved
+                row.get('Q_TRANSF_PEND', 0),  # <-- CERO FIJO PARA units_reserved
+                row.get('M_HABILITADO_SUCU', 'S').strip().upper() == 'N',  # Bloqueado para compra
+                row.get('Q_VTA_ULTIMOS_30DIAS', 0),  # Primeros 15
+                row.get('Q_VTA_ULTIMOS_15DIAS', 0)   # Ultimos 15
             )
         
-            if len(fila) != 31:
-                print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas (esperadas: 31)")
+            if len(fila) != 34:
+                print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas (esperadas: 34)")
                 print(fila)
                 continue
             
