@@ -1855,7 +1855,8 @@ def get_execution_execute_by_status(status):
                 ON e.supply_forecast_model_id= m.id
 
         WHERE fee.supply_forecast_execution_status_id = {status}
-            AND fee.last_execution = true;
+            AND fee.last_execution = true
+        ORDER BY fee.ext_supplier_code;
         """
         # Ejecutar la consulta SQL
         fexsts = pd.read_sql(query, conn)

@@ -1,5 +1,3 @@
-# Solo importa lo necesario desde el módulo de funciones
-
 import psycopg2
 import uuid
 from datetime import datetime
@@ -73,10 +71,7 @@ def obtener_supplier_id(ext_code):
                     WHERE ext_code = %s
                 """, (ext_code,))
                 result = cur.fetchone()
-                if result:
-                    return result[0]  # Retorna el UUID
-                else:
-                    return None  # Si no encuentra resultados
+                return result[0] if result else None
     except Exception as e:
         messagebox.showerror("Error", f"Error al obtener supplier_id:\n{e}")
         return None
@@ -110,28 +105,23 @@ def mostrar_datos_modelo(event):
             method_valor.set(mod[0])
             model_name_valor.set(mod[1])
             cargar_parametros(mod[2])
+            nombre_generado = f"{ext_code_valor.get()}_{name_valor.get().split(' ')[0]}_{method_valor.get()}"
+            nombre_pronostico.set(nombre_generado)
             break
 
 def cargar_parametros(model_id):
     global param_entries, param_definitions
     for widget in param_frame.winfo_children():
         widget.destroy()
-
     parametros = obtener_parametros(model_id)
     param_entries.clear()
     param_definitions.clear()
-
     for i, p in enumerate(parametros):
-        nombre = p[0]
-        tipo = p[1]
-        valor = p[2]
-        id_param = p[3]
-
+        nombre, tipo, valor, id_param = p
         tk.Label(param_frame, text=f"{nombre} ({tipo}):", anchor='w').grid(row=i, column=0, sticky='w', padx=5, pady=2)
         entry = tk.Entry(param_frame, width=40)
         entry.insert(0, valor if valor is not None else '')
         entry.grid(row=i, column=1, padx=5, pady=2)
-
         param_entries[id_param] = entry
         param_definitions.append((id_param, nombre, tipo))
 
@@ -154,13 +144,15 @@ def ejecutar_configuracion():
     if not model_id_valor.get() or not id_valor.get():
         messagebox.showwarning("Datos faltantes", "Debe seleccionar un proveedor y un modelo.")
         return
+    if not nombre_pronostico.get().strip():
+        messagebox.showwarning("Etiqueta vacía", "Debe ingresar un nombre de ejecución válido.")
+        return
 
     now = datetime.now()
     exec_id = str(uuid.uuid4())
     schedule_id = str(uuid.uuid4())
     execution_id = str(uuid.uuid4())
     supplier_id = obtener_supplier_id(ext_code_valor.get())
-    print(f"Supplier ID obtenido: {supplier_id}")
 
     if not supplier_id:
         messagebox.showerror("Error", "No se pudo obtener el ID del proveedor.")
@@ -168,66 +160,37 @@ def ejecutar_configuracion():
 
     try:
         with psycopg2.connect(**DB_CONFIG) as conn:
-            with conn.cursor() as cur:                
-                # Armar campos requeridos
-                ext_code = ext_code_valor.get()
-                proveedor = name_valor.get()
-                label = proveedor.split(" ")[0]
-                method = method_valor.get()
-                model_name = model_name_valor.get()                
-                execution_name = f"{ext_code}_{label}_{method}"
-                execution_description = model_name
+            with conn.cursor() as cur:
+                execution_name = nombre_pronostico.get()
+                execution_description = model_name_valor.get()
 
-                # === INSERT 0: spl_supply_forecast_execution (registro principal) ===
                 cur.execute("""
                     INSERT INTO public.spl_supply_forecast_execution (
                         id, "timestamp", supply_forecast_model_id, supplier_id, name, description, ext_supplier_code
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    exec_id, 
-                    now,
-                    model_id_valor.get(),
-                    supplier_id,                
-                    execution_name,
-                    execution_description,
-                    ext_code_valor.get()
-                ))
-                
-                # INSERT INTO schedule
+                """, (exec_id, now, model_id_valor.get(), supplier_id, execution_name, execution_description, ext_code_valor.get()))
+
                 cur.execute("""
                     INSERT INTO public.spl_supply_forecast_execution_schedule(
                         id, "timestamp", supply_forecast_execution_id)
                     VALUES (%s, %s, %s)
                 """, (schedule_id, now, exec_id))
 
-                # INSERT INTO execute
                 cur.execute("""
                     INSERT INTO public.spl_supply_forecast_execution_execute(
-                        id, end_execution, last_execution, start_execution, "timestamp", 
+                        id, end_execution, last_execution, start_execution, "timestamp",
                         supply_forecast_execution_id, supply_forecast_execution_schedule_id, ext_supplier_code, supply_forecast_execution_status_id, supplier_id)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    execution_id,
-                    now, True, now, now,
-                    exec_id,
-                    schedule_id,
-                    ext_code_valor.get(),
-                    10,
-                    supplier_id
-                ))
+                """, (execution_id, now, True, now, now, exec_id, schedule_id, ext_code_valor.get(), 10, supplier_id))
 
-                # INSERT INTO parameters
                 for model_param_id, entry in param_entries.items():
                     param_id = str(uuid.uuid4())
                     valor = entry.get()
-
                     cur.execute("""
                         INSERT INTO public.spl_supply_forecast_execution_parameter(
                             id, "timestamp", supply_forecast_execution_id, supply_forecast_model_parameter_id, value)
                         VALUES (%s, %s, %s, %s, %s)
-                    """, (
-                        param_id, now, exec_id, model_param_id, valor
-                    ))
+                    """, (param_id, now, exec_id, model_param_id, valor))
 
             conn.commit()
         messagebox.showinfo("Éxito", "Configuración ejecutada correctamente.")
@@ -235,33 +198,26 @@ def ejecutar_configuracion():
         messagebox.showerror("Error", f"Error durante la ejecución:\n{e}")
 
 # === INTERFAZ GRÁFICA ===
-#root = tk.Tk()
 root = ttk.Window(themename="cerculean")
 root.title("Configurador de Ejecución de Pronóstico")
 root.geometry("650x700")
 root.resizable(False, False)
 
-# Variables proveedor
 id_valor = tk.StringVar()
 name_valor = tk.StringVar()
 ext_code_valor = tk.StringVar()
 filtro_var = tk.StringVar()
 filtro_var.trace_add("write", filtrar_proveedores)
-
-# Variables modelo
 model_id_valor = tk.StringVar()
 method_valor = tk.StringVar()
 model_name_valor = tk.StringVar()
+nombre_pronostico = tk.StringVar()
 
-# Diccionarios para parámetros
 param_entries = {}
 param_definitions = []
-
-# Cargar datos iniciales
 proveedores = obtener_proveedores()
 modelos = obtener_modelos()
 
-# UI Proveedor
 tk.Label(root, text="Buscar proveedor (por ext_code o nombre):").pack(pady=5)
 tk.Entry(root, textvariable=filtro_var, width=60).pack()
 tk.Label(root, text="Seleccionar Proveedor:").pack(pady=5)
@@ -272,7 +228,6 @@ tk.Entry(root, textvariable=id_valor, state="readonly", width=60).pack(pady=2)
 tk.Entry(root, textvariable=name_valor, state="readonly", width=60).pack(pady=2)
 tk.Entry(root, textvariable=ext_code_valor, state="readonly", width=60).pack(pady=2)
 
-# UI Modelo
 tk.Label(root, text="Seleccionar Modelo de Pronóstico:").pack(pady=10)
 combo_modelos = ttk.Combobox(root, values=[f"{m[0]} - {m[1]}" for m in modelos], state="readonly", width=60)
 combo_modelos.pack()
@@ -281,15 +236,14 @@ tk.Entry(root, textvariable=model_id_valor, state="readonly", width=60).pack(pad
 tk.Entry(root, textvariable=method_valor, state="readonly", width=60).pack(pady=2)
 tk.Entry(root, textvariable=model_name_valor, state="readonly", width=60).pack(pady=2)
 
-# Parámetros editables
+tk.Label(root, text="Nombre del Pronóstico (editable):").pack(pady=10)
+tk.Entry(root, textvariable=nombre_pronostico, width=40).pack(pady=2)
+
 tk.Label(root, text="Parámetros del Modelo (editables):").pack(pady=10)
 param_frame = tk.Frame(root)
 param_frame.pack(pady=5, fill='x', padx=10)
 
-# Botón de ejecución
 tk.Button(root, text="Ejecutar configuración", command=ejecutar_configuracion, bg="#4CAF50", fg="white", height=2, width=30).pack(pady=20)
 
-# Inicialización
 filtrar_proveedores()
 root.mainloop()
-
